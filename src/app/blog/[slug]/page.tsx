@@ -7,6 +7,9 @@ import ContentBlocks from "@/components/content-blocks";
 import { posts } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 
+// The site is a static export (GitHub Pages), so only posts known at build time exist
+export const dynamicParams = false;
+
 // Builds one static page per post at build time
 export function generateStaticParams() {
     return posts.map((post) => ({ slug: post.slug }));

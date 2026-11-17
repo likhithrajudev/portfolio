@@ -534,7 +534,7 @@ export const posts: Post[] = [
         originalUrl:
             "https://medium.com/@likhithraju0/i-discovered-a-25x-faster-alternative-to-redis-at-aws-summit-heres-what-i-learned-566e4d88b4a3",
         cover: {
-            src: "/blog/dragonfly-vs-redis.png",
+            src: "/blog/dragonfly-vs-redis.jpg",
             alt: "DragonflyDB vs Redis: single-threaded Redis at 1x baseline performance compared with multi-threaded DragonflyDB at up to 25x higher throughput",
             width: 1536,
             height: 1024,
