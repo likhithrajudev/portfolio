@@ -9,6 +9,16 @@ export const site = {
     bio: "Love to build cool stuff",
 };
 
+// The head next to your name that looks toward the cursor (components/mascot.tsx).
+// Put the two 3×3 sprite sheets in public/mascot/ and fill in the paths, e.g.
+//   { directions: "/mascot/directions.png", reactions: "/mascot/reactions.png" }
+// While this is null, the profile shows the initials badge instead.
+export const mascot: { directions: string; reactions?: string; followCursor?: boolean } | null = {
+    directions: "/mascot/directions.webp",
+    reactions: "/mascot/reactions.webp",
+    followCursor: false, // faces forward; set to true (with a full directions sheet) to look toward the cursor
+};
+
 export type NavLink = { href: string; label: string };
 
 // Links in the top navbar
@@ -16,6 +26,7 @@ export const navLinks: NavLink[] = [
     { href: "/", label: "Home" },
     { href: "/work", label: "Work" },
     { href: "/blog", label: "Blog" },
+    { href: "/certificates", label: "Certificates" },
     { href: "/resume", label: "Resume" },
 ];
 
@@ -23,6 +34,7 @@ export const navLinks: NavLink[] = [
 export const footerLinks: NavLink[] = [
     ...navLinks,
     { href: "/projects", label: "Projects" },
+    { href: "/playground", label: "Playground" },
     { href: "/gears", label: "Gears" },
     { href: "/setup", label: "Setup" },
     { href: "/terminal", label: "Terminal" },
@@ -292,6 +304,106 @@ export type Achievement = {
 };
 
 // The page sorts these by date (newest first); entries without a date go last, in this order
+export type Certificate = {
+    title: string;
+    issuer: string;
+    date: string; // "YYYY-MM-DD" (shown as "January 5, 2026") or "YYYY-MM" (shown as "Jan 2026")
+    expires?: string; // same format as date
+    detail: string;
+    image?: string; // sharp render shown in the viewer (public/certificates/); leave out if there's no image
+    thumb?: string; // small render shown on the card
+    width?: number;
+    height?: number;
+    pdf?: string; // the original PDF, if there is one
+    badge?: string; // small badge icon shown next to the title
+    verifyUrl?: string; // the issuer's verification page
+};
+
+// Certificates, sorted newest first on the page. The homepage shows the first 4; /certificates shows all.
+export const certificates: Certificate[] = [
+    {
+        title: "HackerRank Orchestrate: Rank #521",
+        issuer: "HackerRank",
+        date: "2026-10",
+        detail: "Certificate of Achievement for building and deploying an AI agent; final rank 521 of 4,094.",
+        image: "/certificates/hackerrank-orchestrate-2026.jpg",
+        thumb: "/certificates/hackerrank-orchestrate-2026-thumb.jpg",
+        width: 1440,
+        height: 980,
+    },
+    {
+        title: "Notion Academy: Essentials",
+        issuer: "Notion Academy",
+        date: "2026-03",
+        expires: "2028-03",
+        detail: "Completed the Essentials badge.",
+        image: "/certificates/notion-academy-essentials.jpg",
+        thumb: "/certificates/notion-academy-essentials-thumb.jpg",
+        width: 2400,
+        height: 1855,
+        pdf: "/certificates/notion-academy-essentials.pdf",
+        badge: "/certificates/notion-academy-essentials-badge.png",
+        verifyUrl: "https://verify.skilljar.com/c/2zfy7crrtq24",
+    },
+    {
+        title: "DevOps Essentials",
+        issuer: "IBM · Coursera",
+        date: "2025-10-03",
+        detail: "IBM Developer Skills Network digital credential.",
+        image: "/certificates/ibm-devops-essentials.jpg",
+        thumb: "/certificates/ibm-devops-essentials-thumb.jpg",
+        width: 1925,
+        height: 1487,
+        badge: "/certificates/ibm-devops-essentials-badge.png",
+        verifyUrl: "https://www.credly.com/badges/76510c13-af92-4dc2-81f9-fa6f7051e6f5",
+    },
+    {
+        title: "Graphic Design Essentials",
+        issuer: "Canva Design School",
+        date: "2025-01-16",
+        detail: "Certificate of completion, credential ID 2488f6.",
+        image: "/certificates/canva-graphic-design-essentials.jpg",
+        thumb: "/certificates/canva-graphic-design-essentials-thumb.jpg",
+        width: 1929,
+        height: 1364,
+        badge: "/certificates/canva-graphic-design-essentials-badge.png",
+    },
+    {
+        title: "AWS Academy Cloud Foundations",
+        issuer: "AWS Academy",
+        date: "2023-11-03",
+        detail: "AWS Academy Graduate, 20 course hours completed.",
+        image: "/certificates/aws-academy-cloud-foundations.jpg",
+        thumb: "/certificates/aws-academy-cloud-foundations-thumb.jpg",
+        width: 1925,
+        height: 1487,
+        badge: "/certificates/aws-academy-cloud-foundations-badge.png",
+        verifyUrl: "https://www.credly.com/go/Ztsn5eTT",
+    },
+    {
+        title: "Shaastra Programming Contest: 39th Position",
+        issuer: "Shaastra, IIT Madras",
+        date: "2026-01-05",
+        detail: "Certificate of Merit for finishing 39th.",
+        image: "/certificates/shaastra-programming-contest-39th.jpg",
+        thumb: "/certificates/shaastra-programming-contest-39th-thumb.jpg",
+        pdf: "/certificates/shaastra-programming-contest-39th.pdf",
+        width: 2400,
+        height: 1698,
+    },
+    {
+        title: "Shaastra Programming Contest: Participation",
+        issuer: "Shaastra, IIT Madras",
+        date: "2025-12-03",
+        detail: "Certificate of Merit for participating.",
+        image: "/certificates/shaastra-programming-contest-participation.jpg",
+        thumb: "/certificates/shaastra-programming-contest-participation-thumb.jpg",
+        pdf: "/certificates/shaastra-programming-contest-participation.pdf",
+        width: 2400,
+        height: 1698,
+    },
+];
+
 export const achievements: Achievement[] = [
     {
         title: "Paytm AI Hackathon",
@@ -303,8 +415,8 @@ export const achievements: Achievement[] = [
     },
     {
         title: "HackerRank Orchestrate AI Hackathon 2026",
-        stat: "521 / 4090",
-        detail: "Bronze medallist, ranked 521st out of 4,090 participants.",
+        stat: "521 / 4094",
+        detail: "Bronze medallist, ranked 521st out of 4,094 participants.",
         platform: "hackerrank",
         date: "2026-10",
         medal: { label: "Bronze medal", image: "/achievements/hackerrank-orchestrate-bronze.png" },
@@ -621,6 +733,7 @@ export const developmentLinks: LinkCard[] = [
     { href: "/gears", title: "Gears", description: "The devices and software I use every day." },
     { href: "/setup", title: "Setup", description: "My editor settings and extensions." },
     { href: "/terminal", title: "Terminal", description: "My shell, prompt, and terminal config." },
+    { href: "/playground", title: "Playground", description: "Write JavaScript and run it right in your browser." },
 ];
 
 export const personalLinks: LinkCard[] = [

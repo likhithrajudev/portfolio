@@ -40,7 +40,7 @@ function PlatformIcon({ platform }: { platform: Achievement["platform"] }) {
 }
 
 const cardClass =
-    "group flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2.5 transition-colors";
+    "group relative flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2.5 transition-colors";
 
 export default function Achievements({ items }: { items: Achievement[] }) {
     return (
@@ -87,13 +87,13 @@ export default function Achievements({ items }: { items: Achievement[] }) {
                                 )}
                             </div>
 
-                            {/* Always takes space so the numbers line up; only visible on linked cards */}
-                            <ArrowUpRight
-                                aria-hidden="true"
-                                className={`size-4 shrink-0 text-secondary opacity-0 transition-opacity ${
-                                    item.href ? "group-hover:opacity-100" : ""
-                                }`}
-                            />
+                            {/* Linked cards show a small arrow in the corner on hover; it takes no space */}
+                            {item.href && (
+                                <ArrowUpRight
+                                    aria-hidden="true"
+                                    className="absolute right-1.5 top-1.5 size-3.5 text-secondary opacity-0 transition-opacity group-hover:opacity-100"
+                                />
+                            )}
                         </>
                     );
 

@@ -8,6 +8,7 @@ import Footer from "@/components/footer";
 import CustomCursor from "@/components/custom-cursor";
 import QuoteCard from "@/components/quote-card";
 import { quote, site } from "@/lib/data";
+import { buildSearchIndex } from "@/lib/search";
 
 const hankenGrotesk = Hanken_Grotesk({
   variable: "--font-hanken-grotesk",
@@ -42,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body className="flex min-h-full flex-col">
-        <Navbar />
+        <Navbar searchItems={buildSearchIndex()} />
         <div className="flex-1">{children}</div>
         {/* Bhagavad Gita quote: on every page, just above the footer */}
         <aside aria-label="Quote" className="mx-auto w-full max-w-2xl px-4 pb-16">
