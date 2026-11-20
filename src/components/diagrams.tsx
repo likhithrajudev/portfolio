@@ -582,6 +582,188 @@ function StreamsRoadmap() {
     );
 }
 
+// ── 12. Evals ───────────────────────────────────────────────────
+
+function EvalLoop() {
+    return (
+        <Steps
+            steps={[
+                "Define what “good” means",
+                "Collect real examples",
+                "Write graders",
+                "Run and score",
+                "Read the failures",
+                "Change one thing",
+                "Re-run and compare",
+            ]}
+        />
+    );
+}
+
+function EvalGraders() {
+    const graders = [
+        ["Code-based", "Exact match, schema checks, unit tests, tool-call and end-state checks.", "Fast, cheap, repeatable. Rigid: misses anything it can’t express as a rule."],
+        ["LLM judge", "A model scores an answer against a written rubric.", "Handles open-ended output at scale. Needs a narrow rubric and checking against humans."],
+        ["Human", "A person reviews outputs against clear criteria.", "The reference standard. Slow and costly, so use it to calibrate the other two."],
+    ];
+    return (
+        <ul className="grid gap-2 sm:grid-cols-3" aria-label="Types of graders">
+            {graders.map(([title, what, tradeoff]) => (
+                <li key={title} className="rounded-lg border border-border bg-background p-3">
+                    <p className="text-sm font-semibold text-primary">{title}</p>
+                    <p className="mt-1.5 text-xs leading-snug text-secondary">{what}</p>
+                    <p className="mt-2 text-xs leading-snug text-muted-foreground">{tradeoff}</p>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+// ── 13. The agent harness ───────────────────────────────────────
+
+function HarnessLayers() {
+    return (
+        <svg
+            viewBox="0 0 640 330"
+            role="img"
+            aria-label="The model sits in the middle. Around it, the harness provides prompts and instructions, context management, memory, tools, permissions and sandbox, hooks and guardrails, and observability and evals."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-harness" />
+            </defs>
+
+            <rect x={20} y={14} width={600} height={300} rx={16} className="fill-none stroke-border" strokeWidth={1.5} strokeDasharray="5 4" />
+            <text x={320} y={40} textAnchor="middle" fontSize={13} fontWeight={700} className="fill-primary">The harness: everything except the model</text>
+
+            <Node x={40} y={75} w={170} label="Prompts & instructions" />
+            <Node x={40} y={150} w={170} label="Context management" />
+            <Node x={40} y={225} w={170} label="Memory" />
+
+            <Node x={250} y={150} w={140} label="Model" tone="violet" />
+
+            <Node x={430} y={75} w={170} label="Tools" tone="blue" />
+            <Node x={430} y={150} w={170} label="Permissions & sandbox" tone="amber" />
+            <Node x={430} y={225} w={170} label="Hooks & guardrails" tone="amber" />
+
+            <Node x={225} y={262} w={190} label="Observability & evals" tone="green" />
+
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-harness)">
+                <line x1={210} y1={90} x2={248} y2={160} />
+                <line x1={210} y1={165} x2={248} y2={165} />
+                <line x1={210} y1={240} x2={248} y2={172} />
+                <line x1={430} y1={90} x2={392} y2={160} />
+                <line x1={430} y1={165} x2={392} y2={165} />
+                <line x1={430} y1={240} x2={392} y2={172} />
+                <line x1={320} y1={262} x2={320} y2={182} />
+            </g>
+        </svg>
+    );
+}
+
+function HarnessLoop() {
+    return (
+        <Steps
+            steps={[
+                "Assemble the context",
+                "Model replies",
+                "Tool call? Check permissions",
+                "Run it in a sandbox",
+                "Feed the result back",
+                "Repeat until done",
+            ]}
+        />
+    );
+}
+
+// ── 14. Voice AI ────────────────────────────────────────────────
+
+function VoicePipeline() {
+    const cascaded: [string, "default" | "amber" | "blue" | "violet"][] = [
+        ["Mic", "default"],
+        ["Turn detect", "amber"],
+        ["STT", "blue"],
+        ["LLM", "violet"],
+        ["TTS", "blue"],
+        ["Speaker", "default"],
+    ];
+    return (
+        <svg
+            viewBox="0 0 640 300"
+            role="img"
+            aria-label="Two designs. A cascaded pipeline: microphone, turn detection, speech-to-text, language model, text-to-speech, speaker. A speech-to-speech design: microphone, one speech-to-speech model, speaker."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-voice" />
+            </defs>
+
+            <text x={12} y={30} fontSize={13} fontWeight={700} className="fill-primary">Cascaded pipeline</text>
+            {cascaded.map(([label, tone], i) => (
+                <Node key={label} x={12 + i * 106} y={46} w={86} label={label} tone={tone} />
+            ))}
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-voice)">
+                {[0, 1, 2, 3, 4].map((i) => (
+                    <line key={i} x1={98 + i * 106} y1={61} x2={116 + i * 106} y2={61} />
+                ))}
+            </g>
+            <text x={12} y={106} fontSize={12} className="fill-secondary">Every stage can be swapped, logged and tested, but each one adds delay.</text>
+
+            <text x={12} y={170} fontSize={13} fontWeight={700} className="fill-primary">Speech-to-speech</text>
+            <Node x={12} y={186} w={86} label="Mic" />
+            <Node x={170} y={186} w={300} label="Speech-to-speech model" tone="violet" />
+            <Node x={542} y={186} w={86} label="Speaker" />
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-voice)">
+                <line x1={98} y1={201} x2={168} y2={201} />
+                <line x1={470} y1={201} x2={540} y2={201} />
+            </g>
+            <text x={12} y={246} fontSize={12} className="fill-secondary">Fewer hops, and it keeps tone and pauses, but you control less of each step.</text>
+            <text x={12} y={276} fontSize={12} fontWeight={600} className="fill-primary">Many production agents mix both.</text>
+        </svg>
+    );
+}
+
+function VoiceLatency() {
+    const parts: { label: string; ms: number; cls: string }[] = [
+        { label: "Wait to confirm the speaker is done", ms: 200, cls: "fill-amber-500/20 stroke-amber-600/50" },
+        { label: "Speech-to-text", ms: 100, cls: "fill-sky-500/20 stroke-sky-600/50" },
+        { label: "Language model, first tokens", ms: 300, cls: "fill-violet-500/20 stroke-violet-600/50" },
+        { label: "Text-to-speech, first audio", ms: 150, cls: "fill-emerald-500/20 stroke-emerald-600/50" },
+        { label: "Network and playback", ms: 50, cls: "fill-background stroke-border" },
+    ];
+    let x = 20;
+    return (
+        <svg
+            viewBox="0 0 640 250"
+            role="img"
+            aria-label="An illustrative 800 millisecond voice-to-voice budget: 200 waiting for end of turn, 100 speech-to-text, 300 language model, 150 text-to-speech and 50 network and playback."
+            className="h-auto w-full"
+        >
+            <text x={20} y={32} fontSize={13} fontWeight={700} className="fill-primary">An illustrative 800 ms voice-to-voice budget</text>
+            {parts.map((part) => {
+                const width = part.ms * 0.75;
+                const left = x;
+                x += width;
+                return (
+                    <g key={part.label}>
+                        <rect x={left} y={52} width={width} height={44} className={part.cls} strokeWidth={1.5} />
+                        <text x={left + width / 2} y={79} textAnchor="middle" fontSize={12} className="fill-primary">
+                            {width > 60 ? `${part.ms} ms` : part.ms}
+                        </text>
+                    </g>
+                );
+            })}
+            {parts.map((part, i) => (
+                <g key={part.label}>
+                    <rect x={20} y={124 + i * 20} width={12} height={12} rx={2} className={part.cls} strokeWidth={1.2} />
+                    <text x={40} y={134 + i * 20} fontSize={12} className="fill-secondary">{part.label}</text>
+                </g>
+            ))}
+            <text x={20} y={238} fontSize={12} className="fill-muted-foreground">Numbers are for illustration. Real systems vary a lot.</text>
+        </svg>
+    );
+}
+
 const diagrams: Record<DiagramName, () => React.ReactElement> = {
     "lld-vs-hld": LldVsHld,
     "lld-roadmap": LldRoadmap,
@@ -596,6 +778,12 @@ const diagrams: Record<DiagramName, () => React.ReactElement> = {
     "reliable-pipeline": ReliablePipeline,
     "stream-pipeline": StreamPipeline,
     "streams-roadmap": StreamsRoadmap,
+    "eval-loop": EvalLoop,
+    "eval-graders": EvalGraders,
+    "harness-layers": HarnessLayers,
+    "harness-loop": HarnessLoop,
+    "voice-pipeline": VoicePipeline,
+    "voice-latency": VoiceLatency,
 };
 
 export default function Diagram({ name }: { name: DiagramName }) {

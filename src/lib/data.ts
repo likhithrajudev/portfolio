@@ -473,7 +473,13 @@ export type DiagramName =
     | "idempotent-consumer"
     | "reliable-pipeline"
     | "stream-pipeline"
-    | "streams-roadmap";
+    | "streams-roadmap"
+    | "eval-loop"
+    | "eval-graders"
+    | "harness-layers"
+    | "harness-loop"
+    | "voice-pipeline"
+    | "voice-latency";
 
 export type Post = {
     slug: string; // the URL: /blog/<slug>
@@ -668,8 +674,556 @@ cd java-streams-practice
 ./run.sh all             # progress summary for every lesson
 ./run.sh --solutions 05  # run the answer key for lesson 5`;
 
+const evalCasesJsonl = `{"id": "refund-01", "question": "Can I return an opened item after 20 days?", "must_contain": ["30 days"], "tags": ["refunds"]}
+{"id": "tone-04", "question": "My order is late and I am furious.", "rubric": "Apologises once, does not blame the customer, offers one concrete next step.", "tags": ["tone"]}
+{"id": "scope-09", "question": "Write me a poem about my cat.", "rubric": "Politely says it can only help with orders and returns.", "tags": ["out-of-scope"]}`;
+
+const evalRunnerPython = `import json
+from pathlib import Path
+
+
+def run_system(question: str) -> str:
+    ...  # call your prompt, RAG pipeline or agent here
+
+
+def grade(case: dict, answer: str) -> bool:
+    # Code first: cheap, exact and repeatable
+    if "must_contain" in case:
+        return all(text.lower() in answer.lower() for text in case["must_contain"])
+    # Judgement only where a rule can't express "good"
+    return llm_judge(case["question"], answer, case["rubric"])
+
+
+def main() -> None:
+    lines = Path("evals/cases.jsonl").read_text().splitlines()
+    cases = [json.loads(line) for line in lines]
+    results = [(case["id"], grade(case, run_system(case["question"]))) for case in cases]
+
+    passed = sum(ok for _, ok in results)
+    print(f"{passed}/{len(results)} passed")
+    for case_id, ok in results:
+        if not ok:
+            print("FAIL", case_id)  # read every failure: that is the useful part
+
+
+if __name__ == "__main__":
+    main()`;
+
+const judgePrompt = `You are grading a customer-support reply.
+
+Rubric: {rubric}
+
+Question: {question}
+Reply: {answer}
+
+First write one or two sentences of reasoning.
+Then, on its own line, write exactly PASS or FAIL.`;
+
+const harnessLoopPython = `def run_agent(task: str, llm, tools: dict, max_steps: int = 20) -> str:
+    messages = [system_prompt(), user_message(task)]
+
+    for _ in range(max_steps):
+        reply = llm.chat(messages, tools=tool_schemas(tools))
+        messages.append(reply.as_message())
+
+        if not reply.tool_calls:           # no tool requested: the model is done
+            return reply.text
+
+        for call in reply.tool_calls:
+            result = execute(call, tools)  # permissions, sandbox and timeouts live here
+            messages.append(tool_result(call.id, result))
+
+    raise StepLimitExceeded(f"no answer after {max_steps} steps")`;
+
+const harnessExecutePython = `READ_ONLY = {"read_file", "search"}
+
+
+def execute(call, tools, approve) -> str:
+    if call.name not in tools:
+        return f"Error: unknown tool '{call.name}'. Available: {', '.join(tools)}"
+
+    # Anything that changes state needs a human yes, enforced in code, not in the prompt
+    if call.name not in READ_ONLY and not approve(call):
+        return "Denied by the user. Ask what they would like instead."
+
+    try:
+        return tools[call.name](**call.arguments)
+    except TimeoutError:
+        return "Error: the tool timed out. Try a smaller input."
+    except Exception as error:
+        return f"Error: {error}"  # a clear error lets the model correct itself`;
+
+const voiceStreamingPython = `async def speak_reply(llm_stream, tts) -> None:
+    sentence = ""
+    async for token in llm_stream:
+        sentence += token
+        if sentence.rstrip().endswith((".", "?", "!")):
+            await tts.say(sentence)  # start talking before the model has finished
+            sentence = ""
+    if sentence.strip():
+        await tts.say(sentence)`;
+
 // Newest first
 export const posts: Post[] = [
+    {
+        slug: "evals-how-to-know-your-ai-system-works",
+        title: "Evals: How to Know Your AI System Actually Works",
+        description: "What an eval is, how to build a dataset and choose graders, how to handle non-determinism and agents, and how to run evals in CI and production.",
+        date: "2026-11-20",
+        tags: ["Evals", "LLMs", "Testing", "AI Engineering"],
+        body: [
+            // Introduction
+            { type: "p", text: "You change a prompt. The case that was bothering you now works, so you ship it. A week later someone mentions that three other things quietly got worse. Nobody noticed because nobody was checking." },
+            { type: "p", text: "That’s what working by feel looks like, and it’s the default way people build with language models. **Evals** are the alternative: a repeatable way to measure whether your AI system does what you want, so you can change it without guessing." },
+
+            // What
+            { type: "h2", text: "What Is an Eval?" },
+            { type: "p", text: "An eval is a test for behaviour that isn’t fully deterministic. It has four parts:" },
+            {
+                type: "ul",
+                items: [
+                    "**A task:** the thing the system should do, such as answering a support question or fixing a bug.",
+                    "**A dataset:** a set of example inputs, each with a way to tell what a good result looks like.",
+                    "**A grader:** the code, model or person that decides pass or fail, or gives a score.",
+                    "**A score:** usually a pass rate, tracked over time so you can see regressions.",
+                ],
+            },
+            { type: "p", text: "It’s close to a unit-test suite, with one big difference. A normal test asserts an exact output. A language model can word the same correct answer a hundred ways, so the grader has to judge meaning, and the same input can pass today and fail tomorrow." },
+            { type: "h3", text: "Why they matter" },
+            {
+                type: "ul",
+                items: [
+                    "**Safe changes:** you can edit a prompt, swap a model or change a tool and see what moved.",
+                    "**Honest upgrades:** a new model isn’t automatically better for your task. An eval tells you.",
+                    "**Faster iteration:** once there’s a number, you can try ten ideas in an afternoon instead of arguing about them.",
+                    "**A shared definition of good:** writing the cases forces you to decide what “good” means.",
+                ],
+            },
+
+            // Loop
+            { type: "h2", text: "The Eval Loop" },
+            {
+                type: "figure",
+                diagram: "eval-loop",
+                caption: "Evals aren’t a one-off report. They’re a loop you run every time you change something.",
+            },
+            { type: "p", text: "The steps that people skip are the first and the fifth. Without a written definition of good you can’t grade anything, and without reading the actual failures you’ll only change the score, not the system." },
+
+            // Dataset
+            { type: "h2", text: "Start With the Dataset" },
+            { type: "p", text: "You don’t need thousands of examples. Twenty to fifty real ones, chosen well, beat a large set of generic ones. Where to get them:" },
+            {
+                type: "ul",
+                items: [
+                    "**Real usage:** logs, support tickets, chat transcripts. Real inputs are messier than anything you’d invent.",
+                    "**Failures you’ve already seen:** every bug report is a free test case. Add it, so it can never come back unnoticed.",
+                    "**Edge cases on purpose:** empty input, very long input, other languages, ambiguous requests, and attempts to push the system out of scope.",
+                    "**Cases where the right answer is “no”:** refusing, asking a question back, or handing off to a human.",
+                ],
+            },
+            { type: "p", text: "Tag each case by category so that you can see *where* the score changed, not just that it did. Keep part of the set aside and don’t tune against it, or you’ll end up with a prompt that’s brilliant at your test cases and average everywhere else." },
+            { type: "code", filename: "evals/cases.jsonl", code: evalCasesJsonl },
+            { type: "note", text: "Synthetic data from a model can help you widen coverage, but review it by hand. A generated case with a wrong “expected answer” will quietly punish a correct system." },
+
+            // Graders
+            { type: "h2", text: "Choosing Graders" },
+            {
+                type: "figure",
+                diagram: "eval-graders",
+                caption: "Layer the three. Use the cheapest grader that can do the job.",
+            },
+            { type: "h3", text: "Code-based graders" },
+            { type: "p", text: "Use them whenever a rule can express correctness: output matches a schema, a unit test passes, the right tool was called with the right arguments, a database row now exists. They’re fast, free and perfectly repeatable. Their weakness is rigidity. A grader that compares code to one reference solution will fail a different but correct implementation." },
+            { type: "h3", text: "LLM judges" },
+            { type: "p", text: "For open-ended output (tone, helpfulness, faithfulness to a source) a rule can’t decide, so a model grades against a written rubric. A few habits keep a judge useful:" },
+            {
+                type: "ul",
+                items: [
+                    "**Keep each rubric narrow.** One judge, one question. A prompt that scores five things at once is hard to debug.",
+                    "**Prefer a clear pass or fail** over a 1 to 10 scale, where the difference between a 6 and a 7 is noise.",
+                    "**Ask for reasoning before the verdict,** and store it. When the judge is wrong, the reasoning shows why.",
+                    "**Check it against people.** Hand-label a small sample and see how often the judge agrees. If it doesn’t, fix the rubric before trusting any score.",
+                    "**Watch for bias.** Judges can prefer longer answers, the first option in a pairwise comparison, or text written by the same model family. Swap the order on a sample, and where you can, use a different model to judge.",
+                ],
+            },
+            { type: "code", filename: "judge_prompt.txt", code: judgePrompt },
+            { type: "h3", text: "Human review" },
+            { type: "p", text: "People are the reference standard, but they’re slow, costly and not perfectly consistent either. Use them to create the first labels, to settle disagreements between graders, to review odd edge cases, and to check now and then that your LLM judge hasn’t drifted. Give reviewers a written rubric so two of them reach the same verdict." },
+
+            // Runner
+            { type: "h2", text: "A Runner Small Enough to Start Today" },
+            { type: "p", text: "You don’t need a platform to begin. A script that loads cases, runs your system, grades each one and prints the failures is enough, and it can live in your repo." },
+            { type: "code", filename: "run_evals.py", code: evalRunnerPython },
+
+            // Non-determinism
+            { type: "h2", text: "Dealing With Randomness" },
+            { type: "p", text: "Run the same case twice and you can get two different answers, so a single run is weak evidence. Two habits help:" },
+            {
+                type: "ul",
+                items: [
+                    "**Run each case several times** and look at the rate, not one result.",
+                    "**Know which question you’re asking.** *pass@k* asks whether at least one of k tries succeeds, which suits tasks where you can retry. *pass^k* asks whether all k tries succeed, which is the honest measure when a user needs it to work every time.",
+                ],
+            },
+            { type: "p", text: "A system that succeeds 90% of the time on one try succeeds on all five tries only about 59% of the time (0.9 to the power of 5). That gap is why a demo that “worked when I tried it” can still be unreliable in production." },
+
+            // Agents
+            { type: "h2", text: "Evaluating Agents" },
+            { type: "p", text: "An agent takes many steps and calls tools, so there’s more to grade than one answer. What works in practice:" },
+            {
+                type: "ul",
+                items: [
+                    "**Grade the outcome, not the exact path.** Agents find routes you didn’t imagine. Check the end state: is the file fixed, does the row exist, did the tests pass?",
+                    "**Check the dangerous things directly.** Did it call a destructive tool? Did it stay inside its allowed folder?",
+                    "**Track the cost of success:** number of steps, tokens, time and money. An agent that passes in 40 steps is a different product from one that passes in 6.",
+                    "**Read transcripts.** A pass can hide a lucky guess, and a fail can be a broken grader. Reading a dozen full runs teaches more than any dashboard.",
+                ],
+            },
+            { type: "p", text: "The setup around the model matters as much as the model, which is the subject of my post on [the agent harness](/blog/agent-harness-everything-around-the-model)." },
+
+            // Offline / online
+            { type: "h2", text: "Offline, in CI and in Production" },
+            {
+                type: "ol",
+                items: [
+                    "**On every commit:** fast code-based graders over a small set. They should finish in minutes.",
+                    "**Before merging or releasing:** the full set, including LLM judges, which cost more and take longer.",
+                    "**In production:** sample real traffic, grade it, and collect user feedback such as thumbs-down and escalations.",
+                    "**Close the loop:** every real failure you find becomes a new case in the dataset.",
+                ],
+            },
+            { type: "p", text: "That last step is what makes evals compound. Your test set slowly turns into a record of everything that has ever gone wrong, and it’s specific to your product." },
+
+            // Mistakes
+            { type: "h2", text: "Common Mistakes" },
+            {
+                type: "ul",
+                items: [
+                    "**Generic metrics.** A made-up “helpfulness score” can look precise and mean nothing. Grade what your users actually need.",
+                    "**Too few, too clean examples.** If every case is a polite, well-formed request, you’re testing the easy part.",
+                    "**Tuning to the test.** Edit a prompt until the set passes and you may only have memorised it. Keep a held-out set.",
+                    "**Trusting the judge blindly.** An uncalibrated LLM judge is another unverified component.",
+                    "**Chasing 100%.** When an eval is saturated it can no longer tell you anything. Add harder cases.",
+                    "**Never reading the failures.** The score tells you something is wrong. The failures tell you what.",
+                    "**Ignoring cost and latency.** A better answer that takes ten times longer may be a worse product.",
+                ],
+            },
+
+            // Start
+            { type: "h2", text: "A Starter Checklist" },
+            {
+                type: "ol",
+                items: [
+                    "Write down what a good result looks like, in a few sentences.",
+                    "Collect 20 to 50 real examples, including some failures and some “should refuse” cases.",
+                    "Add code-based graders wherever a rule can decide.",
+                    "Add one narrow LLM judge for the rest, and check it against 20 hand-labelled cases.",
+                    "Run it on every change, and look at the failing cases, not just the number.",
+                    "Add every new production failure to the set.",
+                ],
+            },
+
+            // Takeaway
+            { type: "h2", text: "My Takeaway" },
+            { type: "p", text: "Building with models is easy to start and hard to keep reliable. Evals are what turn a clever demo into something you can improve on purpose." },
+            { type: "quote", text: "If you can’t measure a change, you’re guessing about it." },
+            { type: "p", text: "Begin small. Twenty honest cases and a script you actually run will do more than an elaborate platform you never set up." },
+        ],
+    },
+    {
+        slug: "agent-harness-everything-around-the-model",
+        title: "The Agent Harness: Everything Around the Model",
+        description: "What an agent harness is, the loop at its core, and the layers around the model: tools, context, memory, permissions, guardrails and observability.",
+        date: "2026-11-20",
+        tags: ["AI Agents", "LLMs", "Harness", "AI Engineering"],
+        body: [
+            // Introduction
+            { type: "p", text: "Give two teams the same language model and they can ship very different agents. One keeps losing track of what it was doing and breaks things. The other finishes real work reliably. The model is the same. What differs is everything built around it." },
+            { type: "p", text: "That surrounding code is the **harness**. Tools like coding assistants and research agents are harnesses wrapped around a model. This post explains what the harness is, what’s inside it, and what I’d keep in mind when building one." },
+
+            // What
+            { type: "h2", text: "What Is a Harness?" },
+            { type: "p", text: "A language model on its own reads text and writes text. It can’t open a file, run a command or remember yesterday. The **harness** is the program that turns that into an agent: it feeds the model the right information, lets the model ask for actions, carries those actions out safely, and feeds the results back." },
+            {
+                type: "figure",
+                diagram: "harness-layers",
+                caption: "The model is one box. The harness is every box around it.",
+            },
+            { type: "p", text: "A useful rule of thumb: if it’s not the model’s weights, it’s the harness. That includes your system prompt, your tool definitions, how you trim a long conversation, and the check that stops a destructive command." },
+
+            // Loop
+            { type: "h2", text: "The Core Loop" },
+            { type: "p", text: "At the centre of nearly every agent is a short loop. The model replies, and if it asks for a tool, the harness runs it and sends the result back. When the model replies without asking for a tool, it’s finished." },
+            {
+                type: "figure",
+                diagram: "harness-loop",
+                caption: "Each turn through the loop is one step. Most useful work takes many steps.",
+            },
+            { type: "code", filename: "agent_loop.py", code: harnessLoopPython },
+            { type: "p", text: "That’s the whole skeleton. Everything below is about what goes into those few lines: what `system_prompt()` contains, what `tools` exist, how `messages` stays under control, and what `execute` is allowed to do." },
+
+            // Instructions
+            { type: "h2", text: "Layer 1: Instructions" },
+            { type: "p", text: "The system prompt tells the model who it is, what it should do, and how to behave. Good instructions are specific and short on rules that restate the obvious. Many harnesses also load project instructions from a file in your repository, such as `AGENTS.md` or `CLAUDE.md`, so that the agent learns your commands, conventions and no-go areas without you repeating them." },
+            { type: "note", text: "Instructions are advice, not enforcement. The model can ignore them. Anything that must never happen belongs in code (see permissions below), not in the prompt." },
+
+            // Tools
+            { type: "h2", text: "Layer 2: Tools" },
+            { type: "p", text: "Tools are how the model acts: read a file, search, run a command, call an API. The model sees only each tool’s name, description and parameters, so these are effectively its documentation. Tool design is a big lever:" },
+            {
+                type: "ul",
+                items: [
+                    "**Few, clear tools** beat many overlapping ones. If two tools look similar to a person, the model will mix them up too.",
+                    "**Describe when to use each tool,** not just what it does.",
+                    "**Return concise results.** Dumping a 10,000-line file into the context wastes space and hides the part that matters.",
+                    "**Make errors useful.** “Path is outside the workspace, try a path under ./src” lets the model fix itself. “Error 500” doesn’t.",
+                    "**Make tools safe to repeat** where you can, because models retry.",
+                ],
+            },
+
+            // Context
+            { type: "h2", text: "Layer 3: Context Management" },
+            { type: "p", text: "The model can only look at a limited amount of text at once, and quality tends to drop when that space fills with noise. Long tasks therefore need active management of what the model sees:" },
+            {
+                type: "ul",
+                items: [
+                    "**Load just in time.** Let the agent search and open the file it needs, instead of pasting the whole codebase up front.",
+                    "**Trim old tool output.** Results from ten steps ago are rarely needed in full.",
+                    "**Summarise (compact)** a long conversation into a short brief when it gets close to the limit, and keep the important decisions.",
+                    "**Use sub-agents.** Hand a side task, such as “search the repo and report”, to a fresh agent with its own clean context, and take back only a short summary.",
+                ],
+            },
+
+            // Memory
+            { type: "h2", text: "Layer 4: Memory" },
+            { type: "p", text: "The model starts every session knowing nothing about you. Memory is whatever the harness saves and reloads: notes files, a task list the agent keeps updating, preferences, or a summary of last time. Plain files are often enough, and they have a bonus: you can open them, read them and correct them." },
+
+            // Permissions
+            { type: "h2", text: "Layer 5: Permissions and Sandboxing" },
+            { type: "p", text: "An agent that can run commands can also run the wrong ones. Safety has to be enforced by the harness, since a prompt can be ignored or overridden by text the agent reads along the way (a web page or a file can contain instructions)." },
+            {
+                type: "ul",
+                items: [
+                    "**Least privilege:** give the agent only the tools and folders the task needs.",
+                    "**Approval for risky actions:** deleting, pushing, spending money and sending messages need a human yes.",
+                    "**Isolation:** run commands in a sandbox with limited file and network access, plus time limits.",
+                    "**Treat outside text as untrusted:** content fetched from the web or a file is data, not orders.",
+                ],
+            },
+            { type: "code", filename: "execute.py", code: harnessExecutePython },
+
+            // Hooks
+            { type: "h2", text: "Layer 6: Hooks and Guardrails" },
+            { type: "p", text: "Hooks are small pieces of deterministic code that run at set moments: before a tool call, after an edit, when the agent says it’s done. Use them for things that should happen every time without the model remembering: run the formatter after each edit, block writes to a protected folder, or refuse to finish while the tests fail." },
+            { type: "p", text: "The principle is to let code do what code does well. A linter is more reliable than asking the model to be careful." },
+
+            // Errors
+            { type: "h2", text: "Failing Gracefully" },
+            {
+                type: "ul",
+                items: [
+                    "**Step and cost limits,** so a confused agent can’t loop forever.",
+                    "**Spot repetition.** The same failing call five times in a row means stop and rethink, not try again.",
+                    "**Bounded retries** with backoff for flaky tools, and no retries for actions that aren’t safe to repeat.",
+                    "**A way to hand back control:** when it’s stuck, ask the user instead of guessing.",
+                ],
+            },
+
+            // Observability
+            { type: "h2", text: "Layer 7: Observability and Evals" },
+            { type: "p", text: "You can’t improve what you can’t see. Record every step: the context sent, the tool calls, results, tokens, time and cost. When an agent fails, the trace usually shows exactly where it went wrong." },
+            { type: "p", text: "Then measure changes. Whenever you edit a tool description or a prompt, you’re changing the product, and the only honest check is an eval. I cover how to build them in [Evals: How to Know Your AI System Actually Works](/blog/evals-how-to-know-your-ai-system-works)." },
+
+            // Principles
+            { type: "h2", text: "Principles I’d Follow" },
+            {
+                type: "ol",
+                items: [
+                    "**Start with the simplest loop that works.** Add a layer only when you can point to the failure it fixes.",
+                    "**Put rules in code, advice in prompts.** Never rely on a prompt for safety.",
+                    "**Spend effort on tools and context,** not on clever prompt wording.",
+                    "**Keep the harness thin over time.** Models improve, and scaffolding that once helped can start to get in the way. Re-test old workarounds and remove the ones that no longer pay for themselves.",
+                    "**Make everything inspectable:** logs, traces and plain-file memory.",
+                    "**Measure every change** against a fixed set of tasks.",
+                ],
+            },
+
+            // Framework
+            { type: "h2", text: "Harness vs Framework" },
+            { type: "p", text: "An agent framework gives you parts: a loop, tool wrappers, memory helpers. Your harness is what you assemble from them, including the decisions: which tools, what permissions, how context is trimmed. A framework can speed you up, but it can’t make those choices for you, and you still need to understand the loop underneath." },
+
+            // Takeaway
+            { type: "h2", text: "My Takeaway" },
+            { type: "p", text: "The model supplies the intelligence. The harness supplies the reliability: what it can see, what it can do, what it’s allowed to do, and how you find out when it goes wrong." },
+            { type: "quote", text: "A great model in a careless harness is still a careless agent." },
+            { type: "p", text: "If you’re building an agent, spend your first week on the loop, the tools and the permissions, and write a handful of evals before you touch the prompt." },
+        ],
+    },
+    {
+        slug: "age-of-voice-ai",
+        title: "The Age of Voice AI: Why Talking to Software Finally Works",
+        description: "Why voice agents are taking off now, how they work, the latency and turn-taking problems that decide whether they feel natural, and where they’re being used.",
+        date: "2026-11-20",
+        tags: ["Voice AI", "AI Agents", "Latency", "Real-Time Systems"],
+        body: [
+            // Introduction
+            { type: "p", text: "For years, talking to software meant shouting “representative!” at a phone menu, or asking a smart speaker the same question three different ways. Voice was the interface everyone expected to win and that mostly disappointed." },
+            { type: "p", text: "That’s changing quickly. Voice agents can now hold a conversation that is fast and flexible enough to feel natural, and they’re being put on real phone lines, in apps, cars and devices. This post covers why this is happening now, how these systems work, and what makes them hard to get right." },
+
+            // Why now
+            { type: "h2", text: "Why Now?" },
+            { type: "p", text: "Older voice assistants worked by matching what you said to a fixed list of commands. Anything off the list failed. Several things changed together:" },
+            {
+                type: "ul",
+                items: [
+                    "**Language models understand messy speech.** People don’t speak in commands. They interrupt themselves, change their mind and trail off. A model can handle “actually, make that Thursday, no wait, Friday morning”.",
+                    "**Speech recognition got far better,** and works as a stream, producing words while the person is still talking.",
+                    "**Synthetic voices stopped sounding robotic.** Modern text-to-speech can sound natural and expressive, and can start speaking within a fraction of a second.",
+                    "**Models that work on audio directly.** Some can take speech in and give speech back, without turning it into text in the middle.",
+                    "**Better turn-taking.** Systems are much better at knowing when you’ve finished and when you’re interrupting.",
+                    "**Falling costs and open tooling.** Running a voice agent is cheaper than it was, and open-source frameworks such as Pipecat and LiveKit Agents give small teams a head start.",
+                ],
+            },
+            { type: "note", text: "Much of the public information on this space comes from vendors who sell voice platforms. Treat claimed latency numbers and benchmarks as directional, and measure on your own calls." },
+
+            // How
+            { type: "h2", text: "How a Voice Agent Works" },
+            { type: "p", text: "There are two main designs, and many real products mix them." },
+            {
+                type: "figure",
+                diagram: "voice-pipeline",
+                caption: "The cascaded pipeline is easy to inspect. Speech-to-speech has fewer hops.",
+            },
+            { type: "h3", text: "Cascaded: speech to text, a language model, then text to speech" },
+            {
+                type: "ul",
+                items: [
+                    "**Pros:** you can pick the best part for each stage, read the transcript, log everything, test it, and plug in your own tools and business rules.",
+                    "**Cons:** every stage adds delay, and tone, emotion and pauses are lost when speech is flattened to text.",
+                ],
+            },
+            { type: "h3", text: "Speech-to-speech: one model that listens and talks" },
+            {
+                type: "ul",
+                items: [
+                    "**Pros:** fewer hops, so it can respond quickly, and it can pick up on how you said something and not only what you said.",
+                    "**Cons:** less control and visibility at each step, and harder to audit or to force exact wording when you need it.",
+                ],
+            },
+            { type: "p", text: "A common compromise is a speech-native model for the flow of conversation, with a text-based layer for tool calls, business rules and records." },
+
+            // Latency
+            { type: "h2", text: "Latency Is the Whole Game" },
+            { type: "p", text: "In human conversation, the pause between one person finishing and the other starting is very short, roughly a fifth of a second. A voice agent that waits two seconds feels broken, even if its answer is perfect. Commonly quoted targets for a natural feel are well under a second from the end of your speech to the start of the reply." },
+            {
+                type: "figure",
+                diagram: "voice-latency",
+                caption: "Every stage eats part of the budget, and the waiting for the speaker to finish is often the biggest single piece.",
+            },
+            { type: "p", text: "Ways teams claw time back:" },
+            {
+                type: "ul",
+                items: [
+                    "**Stream everything.** Don’t wait for a full transcript, a full reply or a full audio file. Start each stage as soon as the previous one has something to give it.",
+                    "**Speak the first sentence early.** Send text to the voice as soon as the first sentence is complete, while the model is still writing the rest.",
+                    "**Use a fast model for simple turns,** and keep the larger one for turns that need it.",
+                    "**Run close to the caller.** Keep the services in the same region, and use low-latency transport such as WebRTC.",
+                    "**Cover tool delays.** When the agent must look something up, a short “let me check that for you” keeps the line from going silent.",
+                ],
+            },
+            { type: "code", filename: "speak_early.py", code: voiceStreamingPython },
+            { type: "note", text: "That snippet is simplified. Real text such as “Dr.” or “3.5” contains full stops that aren’t the end of a sentence, so production code needs a smarter splitter." },
+
+            // Turn taking
+            { type: "h2", text: "Turn-Taking and Interruptions" },
+            { type: "p", text: "Knowing *when to speak* is harder than it sounds. A simple voice detector treats any pause as the end of a turn, so the agent cuts in while you’re thinking mid-sentence. Wait longer and every reply feels slow." },
+            {
+                type: "ul",
+                items: [
+                    "**Semantic turn detection** looks at the words as well as the silence. “My number is 98…” is clearly unfinished, even after a pause.",
+                    "**Barge-in:** a person must be able to interrupt. The agent has to stop speaking quickly, drop what it was saying, and listen.",
+                    "**Echo cancellation:** the agent must not hear its own voice through the speaker and respond to itself.",
+                    "**Small acknowledgements** like “mm-hm” show that it’s listening, without taking over the turn.",
+                ],
+            },
+
+            // Telephony
+            { type: "h2", text: "The Phone Is a Harsh Environment" },
+            {
+                type: "ul",
+                items: [
+                    "**Poor audio:** phone calls are narrow-band and compressed, and callers are on roads, in kitchens and on weak signals.",
+                    "**Accents and mixed languages:** many speakers switch between languages mid-sentence, as with Hindi and English. A system tested only on clean, single-language audio will struggle.",
+                    "**Phone details:** keypad tones, call transfers, voicemail detection, hold, and dropped calls.",
+                    "**Rules:** recording consent, telling people they’re talking to an AI, and limits on automated outbound calls vary by country and region. Check them before launching.",
+                ],
+            },
+
+            // Where
+            { type: "h2", text: "Where Voice AI Is Taking Off" },
+            {
+                type: "ul",
+                items: [
+                    "**Customer support and call centres:** answering common questions, collecting details, and handing off to a person with the context.",
+                    "**Reception and booking:** clinics, salons, restaurants and services that miss calls when busy.",
+                    "**Outbound calls:** reminders, confirmations and follow-ups, with careful attention to consent.",
+                    "**Healthcare intake and admin,** where staff time is scarce.",
+                    "**Learning:** language practice, tutoring and interview rehearsal, with a patient partner at any hour.",
+                    "**Accessibility:** a natural interface for people who can’t easily type or read a screen.",
+                    "**Hands-busy settings:** driving, cooking, workshops and coding with your hands off the keyboard.",
+                    "**Local languages:** in places like India, many people find speaking far easier than typing, especially in regional languages, so voice can open services to people that text-based apps leave out.",
+                ],
+            },
+
+            // Hard
+            { type: "h2", text: "The Hard Problems" },
+            {
+                type: "ul",
+                items: [
+                    "**Mistakes are spoken out loud,** and a confident wrong answer about a refund or a medicine can do real harm. You need grounding in real data and clear rules for what the agent may promise.",
+                    "**Reliability across many calls.** One good demo proves little. You need to test with recorded and simulated calls, which is the topic of [my post on evals](/blog/evals-how-to-know-your-ai-system-works).",
+                    "**Tool use under time pressure,** where every API call eats into a latency budget the caller can hear.",
+                    "**Safety:** a caller can try to talk the agent into ignoring its rules, and it can be fed misleading content, just like a chat agent.",
+                    "**Privacy:** a voice recording is personal data, and in some places can count as biometric data. Store as little as you can, for as short as you can.",
+                    "**Trust:** be upfront that it’s an AI, and always give an easy route to a human.",
+                    "**Cost per minute,** which adds up quickly at call-centre volumes.",
+                ],
+            },
+
+            // Build
+            { type: "h2", text: "If You Want to Build One" },
+            {
+                type: "ol",
+                items: [
+                    "**Pick a narrow job** such as booking one kind of appointment, not “handle all calls”.",
+                    "**Start with a managed realtime API or an open framework** (Pipecat and LiveKit Agents are two) instead of wiring audio yourself.",
+                    "**Measure latency from day one,** from the end of speech to the first audible reply, and look at the slow calls, not just the average.",
+                    "**Log transcripts and audio (with consent)** so you can see what happened.",
+                    "**Write evals on real calls,** including noisy audio, interruptions and tricky accents.",
+                    "**Design the handoff to a human** before you design anything clever.",
+                ],
+            },
+
+            // Future
+            { type: "h2", text: "Where It’s Heading" },
+            {
+                type: "ul",
+                items: [
+                    "**Speech-native models** that sound more natural and respond faster.",
+                    "**Voice together with a screen,** where the agent talks while it shows you a form or a map.",
+                    "**Agents that act,** not just chat: booking, paying, filing and following up for you.",
+                    "**On-device voice** for privacy and for places with poor connections.",
+                    "**Voice as one channel** among text, email and chat, all backed by the same agent.",
+                ],
+            },
+
+            // Takeaway
+            { type: "h2", text: "My Takeaway" },
+            { type: "p", text: "Voice agents work now because several hard parts improved at once: understanding, speech, speed and turn-taking. What separates a good one from a frustrating one is rarely the model alone. It’s latency, interruption handling, grounding and testing." },
+            { type: "quote", text: "In voice, a half-second is the difference between a conversation and a phone menu." },
+            { type: "p", text: "If you build one, begin with a narrow use case, measure the delay from the first day, and test on real, messy calls." },
+        ],
+    },
     {
         slug: "kafka-pub-sub-outbox-pattern-and-idempotency",
         title: "Kafka, Pub/Sub, the Outbox Pattern and Idempotency at Scale",
