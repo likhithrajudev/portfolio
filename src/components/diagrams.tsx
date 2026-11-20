@@ -301,12 +301,301 @@ function InterviewFlow() {
     );
 }
 
+// ── 6. Pub/sub model ────────────────────────────────────────────
+
+function PubSubModel() {
+    return (
+        <svg
+            viewBox="0 0 640 300"
+            role="img"
+            aria-label="Two publishers, an order service and a payment service, send messages to a topic called orders. Three subscribers, billing, email and analytics, each receive every message from the topic."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-pubsub" />
+            </defs>
+
+            <text x={85} y={64} textAnchor="middle" fontSize={12} className="fill-muted-foreground">Publishers</text>
+            <Node x={20} y={90} w={130} label="Order service" />
+            <Node x={20} y={170} w={130} label="Payment service" />
+
+            {/* The topic: a log of messages */}
+            <rect x={250} y={70} width={140} height={160} rx={12} className="fill-amber-500/15 stroke-amber-600/50" strokeWidth={1.5} />
+            <text x={320} y={96} textAnchor="middle" fontSize={13} fontWeight={700} className="fill-primary">Topic: orders</text>
+            {[0, 1, 2, 3].map((i) => (
+                <rect key={i} x={266 + i * 28} y={118} width={22} height={22} rx={4} className="fill-background stroke-amber-600/50" strokeWidth={1.2} />
+            ))}
+            <text x={320} y={168} textAnchor="middle" fontSize={11} className="fill-secondary">messages are stored,</text>
+            <text x={320} y={184} textAnchor="middle" fontSize={11} className="fill-secondary">not deleted on read</text>
+
+            <text x={555} y={44} textAnchor="middle" fontSize={12} className="fill-muted-foreground">Subscribers</text>
+            <Node x={490} y={60} w={130} label="Billing" />
+            <Node x={490} y={135} w={130} label="Email" />
+            <Node x={490} y={210} w={130} label="Analytics" />
+
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-pubsub)">
+                <line x1={150} y1={105} x2={248} y2={130} />
+                <line x1={150} y1={185} x2={248} y2={170} />
+                <line x1={392} y1={110} x2={488} y2={78} />
+                <line x1={392} y1={150} x2={488} y2={150} />
+                <line x1={392} y1={190} x2={488} y2={222} />
+            </g>
+
+            <text x={320} y={268} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">
+                Publishers don’t know who is listening. Every subscriber gets every message.
+            </text>
+        </svg>
+    );
+}
+
+// ── 7. Kafka partitions and a consumer group ────────────────────
+
+function KafkaPartitions() {
+    const rows = [
+        { name: "P0", y: 60 },
+        { name: "P1", y: 140 },
+        { name: "P2", y: 220 },
+    ];
+    return (
+        <svg
+            viewBox="0 0 640 330"
+            role="img"
+            aria-label="A producer writes to a topic split into three partitions, P0, P1 and P2, each an ordered log with offsets 0 to 5. In a consumer group called billing, consumer 1 reads partitions P0 and P1, and consumer 2 reads partition P2."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-partitions" />
+            </defs>
+
+            <Node x={14} y={140} w={110} label="Producer" />
+            <text x={69} y={192} textAnchor="middle" fontSize={11} className="fill-muted-foreground">same key →</text>
+            <text x={69} y={207} textAnchor="middle" fontSize={11} className="fill-muted-foreground">same partition</text>
+
+            <text x={314} y={36} textAnchor="middle" fontSize={12} className="fill-muted-foreground">Topic: orders (an ordered log per partition)</text>
+            {rows.map((row) => (
+                <g key={row.name}>
+                    <text x={187} y={row.y + 20} textAnchor="end" fontSize={13} fontWeight={700} className="fill-primary">{row.name}</text>
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                        <g key={i}>
+                            <rect
+                                x={192 + i * 38}
+                                y={row.y}
+                                width={34}
+                                height={30}
+                                rx={5}
+                                className={i === 5 ? "fill-amber-500/25 stroke-amber-600/60" : "fill-background stroke-border"}
+                                strokeWidth={1.4}
+                            />
+                            <text x={192 + i * 38 + 17} y={row.y + 20} textAnchor="middle" fontSize={11} className="fill-secondary font-mono">{i}</text>
+                        </g>
+                    ))}
+                </g>
+            ))}
+
+            {/* Consumer group */}
+            <rect x={470} y={40} width={160} height={250} rx={12} className="fill-none stroke-border" strokeWidth={1.5} strokeDasharray="5 4" />
+            <text x={550} y={62} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">Group: billing</text>
+            <Node x={490} y={96} w={120} label="Consumer 1" tone="green" />
+            <Node x={490} y={215} w={120} label="Consumer 2" tone="green" />
+
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-partitions)">
+                <line x1={124} y1={155} x2={155} y2={78} />
+                <line x1={124} y1={155} x2={155} y2={155} />
+                <line x1={124} y1={155} x2={155} y2={236} />
+                <line x1={424} y1={75} x2={488} y2={106} />
+                <line x1={424} y1={155} x2={488} y2={118} />
+                <line x1={424} y1={235} x2={488} y2={230} />
+            </g>
+
+            <text x={320} y={312} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">
+                Order is guaranteed inside a partition, not across partitions.
+            </text>
+        </svg>
+    );
+}
+
+// ── 8. The dual-write problem ───────────────────────────────────
+
+function DualWrite() {
+    return (
+        <svg
+            viewBox="0 0 640 250"
+            role="img"
+            aria-label="An order service first saves the order to the database, which succeeds, then publishes an event to Kafka, but crashes before the publish. The order exists, but the event is lost."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-dual" />
+            </defs>
+
+            <Node x={20} y={100} w={120} label="Order service" />
+            <Node x={300} y={50} w={120} label="Database" tone="blue" />
+            <Node x={300} y={150} w={120} label="Kafka" tone="amber" />
+
+            <line x1={140} y1={110} x2={298} y2={70} className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-dual)" />
+            <text x={150} y={72} fontSize={12} className="fill-emerald-700 dark:fill-emerald-400">1. save order ✓</text>
+
+            <line x1={140} y1={130} x2={298} y2={168} className="stroke-red-500" strokeWidth={1.5} strokeDasharray="5 4" markerEnd="url(#arrow-dual)" />
+            <text x={150} y={190} fontSize={12} className="fill-red-600 dark:fill-red-400">2. publish ✗ (crash)</text>
+
+            <text x={440} y={70} fontSize={12} className="fill-secondary">The order is saved…</text>
+            <text x={440} y={170} fontSize={12} className="fill-secondary">…but nobody hears about it.</text>
+            <text x={320} y={232} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">
+                Two systems, two writes, no shared transaction.
+            </text>
+        </svg>
+    );
+}
+
+// ── 9. The outbox pattern ───────────────────────────────────────
+
+function OutboxPattern() {
+    return (
+        <svg
+            viewBox="0 0 640 310"
+            role="img"
+            aria-label="The order service commits the order row and an outbox row in one database transaction. A relay reads unpublished outbox rows and publishes them to Kafka. Consumers read from Kafka at least once."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-outbox" />
+            </defs>
+
+            <Node x={10} y={110} w={96} label="Service" />
+
+            <rect x={166} y={50} width={170} height={170} rx={12} className="fill-background stroke-sky-600/50" strokeWidth={1.5} strokeDasharray="5 4" />
+            <text x={251} y={72} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">Database: one transaction</text>
+            <Node x={186} y={92} w={130} label="orders" tone="blue" />
+            <Node x={186} y={142} w={130} label="outbox" tone="amber" />
+            <text x={251} y={198} textAnchor="middle" fontSize={11} className="fill-secondary">both rows commit,</text>
+            <text x={251} y={212} textAnchor="middle" fontSize={11} className="fill-secondary">or neither does</text>
+
+            <Node x={396} y={110} w={84} label="Relay" tone="violet" />
+            <Node x={540} y={110} w={90} label="Kafka" tone="amber" />
+            <Node x={520} y={240} w={110} label="Consumers" tone="green" />
+
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-outbox)">
+                <line x1={106} y1={125} x2={164} y2={125} />
+                <line x1={336} y1={125} x2={394} y2={125} />
+                <line x1={480} y1={125} x2={538} y2={125} />
+                <line x1={585} y1={140} x2={585} y2={238} />
+            </g>
+            <text x={135} y={116} textAnchor="middle" fontSize={11} className="fill-muted-foreground">1. commit</text>
+            <text x={365} y={116} textAnchor="middle" fontSize={11} className="fill-muted-foreground">2. read</text>
+            <text x={509} y={116} textAnchor="middle" fontSize={11} className="fill-muted-foreground">3. publish</text>
+            <text x={575} y={196} textAnchor="end" fontSize={11} className="fill-muted-foreground">4. consume</text>
+            <text x={575} y={211} textAnchor="end" fontSize={11} className="fill-muted-foreground">(at least once)</text>
+
+            <text x={320} y={290} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">
+                The event can be late, but it can’t be lost.
+            </text>
+        </svg>
+    );
+}
+
+// ── 10. Idempotent consumer flow (HTML, wraps on phones) ────────
+
+function IdempotentConsumer() {
+    return (
+        <Steps
+            steps={[
+                "Receive event",
+                "Insert event ID (unique key)",
+                "Duplicate? Skip it",
+                "Apply the change",
+                "Commit the transaction",
+                "Commit the offset",
+            ]}
+        />
+    );
+}
+
+function ReliablePipeline() {
+    return (
+        <Steps
+            steps={[
+                "Business change + outbox row (one transaction)",
+                "Relay publishes (at least once)",
+                "Kafka, keyed by entity ID",
+                "Idempotent consumer",
+                "Offset commit after the transaction",
+            ]}
+        />
+    );
+}
+
+// ── 11. Java streams ────────────────────────────────────────────
+
+function StreamPipeline() {
+    return (
+        <svg
+            viewBox="0 0 640 190"
+            role="img"
+            aria-label="A stream pipeline: a source list of orders, then the intermediate operations filter, map and sorted, then a terminal operation, collect. Nothing runs until the terminal operation is called."
+            className="h-auto w-full"
+        >
+            <defs>
+                <Arrowhead id="arrow-stream" />
+            </defs>
+
+            <text x={65} y={42} textAnchor="middle" fontSize={12} className="fill-muted-foreground">source</text>
+            <Node x={10} y={70} w={110} label="orders" tone="blue" />
+
+            <line x1={150} y1={52} x2={450} y2={52} className="stroke-border" strokeWidth={1.5} />
+            <text x={300} y={42} textAnchor="middle" fontSize={12} className="fill-muted-foreground">intermediate operations (lazy)</text>
+            <Node x={150} y={70} w={80} label="filter" />
+            <Node x={260} y={70} w={80} label="map" />
+            <Node x={370} y={70} w={80} label="sorted" />
+
+            <text x={555} y={42} textAnchor="middle" fontSize={12} className="fill-muted-foreground">terminal operation</text>
+            <Node x={480} y={70} w={150} label="collect(toList())" tone="green" />
+
+            <g className="stroke-secondary" strokeWidth={1.5} markerEnd="url(#arrow-stream)">
+                <line x1={120} y1={85} x2={148} y2={85} />
+                <line x1={230} y1={85} x2={258} y2={85} />
+                <line x1={340} y1={85} x2={368} y2={85} />
+                <line x1={450} y1={85} x2={478} y2={85} />
+            </g>
+
+            <text x={320} y={150} textAnchor="middle" fontSize={12} fontWeight={600} className="fill-primary">
+                Nothing runs until the terminal operation is called.
+            </text>
+            <text x={320} y={170} textAnchor="middle" fontSize={12} className="fill-secondary">
+                Then each element flows through the whole pipeline, one at a time.
+            </text>
+        </svg>
+    );
+}
+
+function StreamsRoadmap() {
+    return (
+        <Steps
+            steps={[
+                "Basics (01-03)",
+                "flatMap and Optional (04)",
+                "Primitive streams (05)",
+                "Collectors and grouping (06-08)",
+                "Laziness and parallel (09-10)",
+                "Patterns and capstones (11-18)",
+            ]}
+        />
+    );
+}
+
 const diagrams: Record<DiagramName, () => React.ReactElement> = {
     "lld-vs-hld": LldVsHld,
     "lld-roadmap": LldRoadmap,
     "strategy-uml": StrategyUml,
     "hld-architecture": HldArchitecture,
     "interview-flow": InterviewFlow,
+    "pubsub-model": PubSubModel,
+    "kafka-partitions": KafkaPartitions,
+    "dual-write": DualWrite,
+    "outbox-pattern": OutboxPattern,
+    "idempotent-consumer": IdempotentConsumer,
+    "reliable-pipeline": ReliablePipeline,
+    "stream-pipeline": StreamPipeline,
+    "streams-roadmap": StreamsRoadmap,
 };
 
 export default function Diagram({ name }: { name: DiagramName }) {

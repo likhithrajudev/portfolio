@@ -6,7 +6,7 @@ import SmoothScroll from "@/components/smooth-scroll";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
 import CustomCursor from "@/components/custom-cursor";
-import QuoteCard from "@/components/quote-card";
+import DailyVerse from "@/components/daily-verse";
 import { quote, site } from "@/lib/data";
 import { buildSearchIndex } from "@/lib/search";
 
@@ -45,9 +45,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <Navbar searchItems={buildSearchIndex()} />
         <div className="flex-1">{children}</div>
-        {/* Bhagavad Gita quote: on every page, just above the footer */}
+        {/* A new Bhagavad Gita verse each day: on every page, just above the footer */}
         <aside aria-label="Quote" className="mx-auto w-full max-w-2xl px-4 pb-16">
-          <QuoteCard text={quote.text} source={quote.source} />
+          <DailyVerse fallback={quote} />
         </aside>
         <Footer />
         <CustomCursor />

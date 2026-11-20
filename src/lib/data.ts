@@ -39,6 +39,7 @@ export const footerLinks: NavLink[] = [
     { href: "/setup", label: "Setup" },
     { href: "/terminal", label: "Terminal" },
     { href: "/contact", label: "Contact" },
+    { href: "/guestbook", label: "Guestbook" },
     { href: "/books", label: "Books" },
     { href: "/movies", label: "Movies" },
 ];
@@ -459,7 +460,20 @@ export type Block =
     | { type: "note"; text: string } // highlighted tip
     | { type: "figure"; diagram: DiagramName; caption?: string }; // a diagram from components/diagrams.tsx
 
-export type DiagramName = "lld-vs-hld" | "lld-roadmap" | "strategy-uml" | "hld-architecture" | "interview-flow";
+export type DiagramName =
+    | "lld-vs-hld"
+    | "lld-roadmap"
+    | "strategy-uml"
+    | "hld-architecture"
+    | "interview-flow"
+    | "pubsub-model"
+    | "kafka-partitions"
+    | "dual-write"
+    | "outbox-pattern"
+    | "idempotent-consumer"
+    | "reliable-pipeline"
+    | "stream-pipeline"
+    | "streams-roadmap";
 
 export type Post = {
     slug: string; // the URL: /blog/<slug>
@@ -503,8 +517,484 @@ class ParkingTicket {
     }
 }`;
 
+const STREAMS_REPO = "https://github.com/likhithrajudev/java-streams-practice";
+
+const outboxTableSql = `CREATE TABLE outbox (
+    id           UUID        PRIMARY KEY,
+    aggregate_id TEXT        NOT NULL,           -- e.g. the order ID; becomes the Kafka key
+    type         TEXT        NOT NULL,           -- e.g. 'OrderPlaced'
+    payload      JSONB       NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    published_at TIMESTAMPTZ                     -- NULL until the relay has sent it
+);
+
+-- The relay only ever looks at unpublished rows
+CREATE INDEX outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;`;
+
+const outboxWriteJava = `@Transactional
+public Order placeOrder(PlaceOrder command) {
+    Order order = orders.save(Order.create(command));
+
+    outbox.save(new OutboxEvent(
+            UUID.randomUUID(),
+            order.getId().toString(),
+            "OrderPlaced",
+            json.write(OrderPlaced.from(order))));
+
+    return order; // the order row and the outbox row commit together, or not at all
+}`;
+
+const outboxRelayJava = `@Scheduled(fixedDelay = 500)
+@Transactional
+public void publishPending() {
+    List<OutboxRow> batch = jdbc.query("""
+            SELECT id, aggregate_id, type, payload
+            FROM outbox
+            WHERE published_at IS NULL
+            ORDER BY created_at
+            LIMIT 100
+            FOR UPDATE SKIP LOCKED
+            """, OutboxRow.MAPPER);
+
+    for (OutboxRow row : batch) {
+        ProducerRecord<String, String> record =
+                new ProducerRecord<>("orders", row.aggregateId(), row.payload());
+        record.headers().add("event-id", row.id().toString().getBytes(UTF_8));
+
+        kafka.send(record).get(10, TimeUnit.SECONDS); // wait for the broker's ack
+        jdbc.update("UPDATE outbox SET published_at = now() WHERE id = ?", row.id());
+    }
+}`;
+
+const producerConfig = `acks=all
+enable.idempotence=true                 # the default since Kafka 3.0
+max.in.flight.requests.per.connection=5 # 5 or fewer keeps ordering with idempotence on
+delivery.timeout.ms=120000`;
+
+const processedEventsSql = `CREATE TABLE processed_events (
+    consumer     TEXT        NOT NULL,   -- one row per consumer, so two services can see the same event
+    event_id     UUID        NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (consumer, event_id)
+);`;
+
+const idempotentConsumerJava = `@Transactional
+public void handle(UUID eventId, OrderPlaced event) {
+    int inserted = jdbc.update("""
+            INSERT INTO processed_events (consumer, event_id)
+            VALUES ('billing', ?)
+            ON CONFLICT DO NOTHING
+            """, eventId);
+
+    if (inserted == 0) {
+        return; // seen this event already: a duplicate delivery, so do nothing
+    }
+
+    billing.charge(event); // same transaction: the charge and the "seen" row commit together
+}
+
+// In the poll loop: commit the offset only after handle() has committed
+//   enable.auto.commit=false
+//   consumer.commitSync();`;
+
+const naturallyIdempotent = `-- Not idempotent: running it twice charges twice
+UPDATE accounts SET balance = balance - 500 WHERE id = 42;
+
+-- Idempotent: running it twice leaves the same result
+INSERT INTO payments (payment_id, account_id, amount)
+VALUES ('9f1c...', 42, 500)
+ON CONFLICT (payment_id) DO NOTHING;`;
+
+const consumerConfig = `enable.auto.commit=false
+max.poll.records=100                  # a batch you can finish well inside the poll interval
+max.poll.interval.ms=300000           # the default; exceed it and the group kicks you out
+partition.assignment.strategy=org.apache.kafka.clients.consumer.CooperativeStickyAssignor
+group.instance.id=billing-1           # optional: static membership, fewer rebalances on restart`;
+
+const streamsPipelineJava = `record Order(String customer, String city, double amount) {}
+
+List<String> bigSpenders = orders.stream()      // source
+        .filter(o -> o.amount() > 1_000)         // intermediate: keep big orders
+        .map(Order::customer)                    // intermediate: orders -> names
+        .distinct()
+        .sorted()
+        .toList();                               // terminal: runs the pipeline`;
+
+const streamsLazyJava = `Stream.of("a", "bb", "ccc")
+        .filter(s -> { System.out.println("filter " + s); return s.length() > 1; })
+        .map(s -> { System.out.println("map " + s); return s.toUpperCase(); })
+        .findFirst();
+
+// Prints:
+//   filter a
+//   filter bb
+//   map bb
+// "ccc" is never looked at: findFirst() short-circuits, and each element
+// goes through the whole pipeline before the next one starts.`;
+
+const streamsGroupingJava = `Map<String, Double> revenueByCity = orders.stream()
+        .collect(Collectors.groupingBy(
+                Order::city,
+                Collectors.summingDouble(Order::amount)));
+
+Map<Boolean, List<Order>> bigAndSmall = orders.stream()
+        .collect(Collectors.partitioningBy(o -> o.amount() > 1_000));`;
+
+const streamsFlatMapJava = `List<String> allTags = posts.stream()
+        .flatMap(post -> post.tags().stream())   // many tags per post -> one flat stream
+        .distinct()
+        .sorted()
+        .toList();`;
+
+const streamsToMapJava = `// Throws IllegalStateException: Duplicate key ... when two orders share a customer
+Map<String, Double> broken = orders.stream()
+        .collect(Collectors.toMap(Order::customer, Order::amount));
+
+// Fix: say what to do when keys collide
+Map<String, Double> totals = orders.stream()
+        .collect(Collectors.toMap(Order::customer, Order::amount, Double::sum));`;
+
+const streamsParallelJava = `// Wrong: ArrayList isn't thread-safe, so elements get lost or an exception is thrown
+List<Integer> broken = new ArrayList<>();
+IntStream.range(0, 10_000).parallel().forEach(broken::add);
+
+// Right: let the stream collect the results
+List<Integer> safe = IntStream.range(0, 10_000).parallel().boxed().toList();`;
+
+const streamsRunJava = `git clone https://github.com/likhithrajudev/java-streams-practice.git
+cd java-streams-practice
+
+./run.sh 01              # run lesson 1 with your code
+./run.sh all             # progress summary for every lesson
+./run.sh --solutions 05  # run the answer key for lesson 5`;
+
 // Newest first
 export const posts: Post[] = [
+    {
+        slug: "kafka-pub-sub-outbox-pattern-and-idempotency",
+        title: "Kafka, Pub/Sub, the Outbox Pattern and Idempotency at Scale",
+        description: "What the pub/sub model is, how Kafka implements it, why dual writes lose events, and how the outbox pattern and idempotent consumers fix it.",
+        date: "2026-11-20",
+        tags: ["Kafka", "System Design", "Outbox Pattern", "Idempotency", "Distributed Systems"],
+        body: [
+            // Introduction
+            { type: "p", text: "Most Kafka tutorials stop at “send a message, read a message”. The hard part starts after that: what happens when the service crashes halfway through, when the same message arrives twice, or when you need ten consumers instead of one? Those questions decide whether your system is correct or only correct on a good day." },
+            { type: "p", text: "This post walks through four ideas in order: the **pub/sub model**, how **Kafka** implements it, the **outbox pattern** that stops you losing events, and **idempotency**, which makes duplicates harmless. Each one fixes a problem the previous one leaves open." },
+
+            // Pub/sub
+            { type: "h2", text: "What Is the Pub/Sub Model?" },
+            { type: "p", text: "In **publish/subscribe**, a *publisher* sends a message to a named channel called a *topic*, without knowing who will read it. Any number of *subscribers* listen to that topic, and each of them gets its own copy of every message." },
+            {
+                type: "figure",
+                diagram: "pubsub-model",
+                caption: "The order service publishes once. Billing, email and analytics each react on their own.",
+            },
+            { type: "p", text: "Compare that with calling services directly. If the order service has to call billing, email and analytics itself, it must know all three, wait for them, and handle each one being down. With pub/sub, adding a fourth consumer means subscribing to the topic. The publisher doesn’t change." },
+            {
+                type: "ul",
+                items: [
+                    "**Decoupling:** publishers and subscribers don’t know each other, only the topic and the message format.",
+                    "**Fan-out:** one event can trigger many independent reactions.",
+                    "**Buffering:** if a subscriber is slow or down, messages wait instead of failing the publisher.",
+                    "**The cost:** work becomes asynchronous and eventually consistent, and you have to design for failure and duplicates.",
+                ],
+            },
+            { type: "note", text: "A classic message queue gives each message to one consumer (competing consumers). Pub/sub gives each message to every subscriber. Kafka can do both, as you’ll see with consumer groups." },
+
+            // Kafka
+            { type: "h2", text: "How Kafka Implements It" },
+            { type: "p", text: "Kafka isn’t a queue that deletes messages once they’re read. A topic is a **log**: messages are appended in order and kept for a retention period (7 days by default), whether or not anyone has read them. Each consumer remembers its own position in the log, so it can replay old messages by moving that position back." },
+            {
+                type: "ul",
+                items: [
+                    "**Topic:** a named stream of events, such as `orders`.",
+                    "**Partition:** a topic is split into partitions, and each partition is an ordered log. Partitions are how Kafka spreads load over many machines.",
+                    "**Offset:** a message’s position inside its partition (0, 1, 2, …).",
+                    "**Key:** the producer can attach a key to a message. Messages with the same key always go to the same partition, so everything about one order stays in order.",
+                    "**Consumer group:** consumers that share one name split the partitions between them. Each partition is read by exactly one consumer in the group, so the group processes each message once. A different group gets its own full copy of the stream. That’s how Kafka gives you both queue and pub/sub behaviour.",
+                ],
+            },
+            {
+                type: "figure",
+                diagram: "kafka-partitions",
+                caption: "Three partitions, two consumers in one group. Each partition has exactly one reader inside the group.",
+            },
+            { type: "note", text: "Kafka guarantees order only inside a partition. If two events must stay in order, give them the same key, for example the order ID." },
+
+            // Delivery guarantees
+            { type: "h2", text: "Delivery Guarantees: Why Duplicates Happen" },
+            { type: "p", text: "Between a producer, the broker and a consumer, messages can be delayed, retried or redelivered. There are three possible promises:" },
+            {
+                type: "ul",
+                items: [
+                    "**At most once:** a message is delivered zero or one times. You can lose messages, but never see a duplicate.",
+                    "**At least once:** a message is delivered one or more times. You never lose it, but you may see it twice. This is the usual default, and the one you should design for.",
+                    "**Exactly once:** each message has exactly one effect. Kafka offers this inside Kafka (read, process, write back to Kafka, using transactions), but not across your database or an external API.",
+                ],
+            },
+            { type: "p", text: "The classic duplicate: a consumer processes a message, charges the card, and crashes before it commits its offset. On restart it resumes from the last committed offset and processes the same message again. Retries after a network timeout and consumer-group rebalances cause the same thing." },
+            { type: "p", text: "Committing the offset *before* processing instead would turn the duplicate into a lost message. Losing money events is worse than repeating them, so the standard choice is at-least-once delivery plus consumers that cope with repeats." },
+
+            // Dual write
+            { type: "h2", text: "The Dual-Write Problem" },
+            { type: "p", text: "Here is the bug that the outbox pattern exists to fix. A service saves an order in its database and then publishes an `OrderPlaced` event to Kafka:" },
+            { type: "code", filename: "OrderService.java", code: "orders.save(order);                 // 1. write to the database\nkafka.send(\"orders\", event);        // 2. publish to Kafka" },
+            { type: "p", text: "These are two separate systems, so there is no transaction around both. If the service crashes (or Kafka is unreachable) between lines 1 and 2, the order exists but the event is never sent. Billing never charges, the warehouse never ships, and nothing in your logs shows an error." },
+            {
+                type: "figure",
+                diagram: "dual-write",
+                caption: "The database write succeeds and the publish fails. The two systems now disagree.",
+            },
+            { type: "p", text: "Swapping the order doesn’t help. Publishing first and then saving can announce an order that never got saved. Wrapping both in a try/catch can’t undo a crash. You need one atomic write." },
+
+            // Outbox
+            { type: "h2", text: "The Outbox Pattern" },
+            { type: "p", text: "The idea: don’t publish to Kafka inside the request. Instead, write the event to an **outbox table in the same database, in the same transaction** as the business change. A separate process, the *relay*, reads the outbox and publishes to Kafka. The database transaction is now the only thing that has to succeed atomically." },
+            {
+                type: "figure",
+                diagram: "outbox-pattern",
+                caption: "The order and its event are committed together. A relay delivers the event to Kafka afterwards.",
+            },
+            { type: "h3", text: "Step 1: The outbox table" },
+            { type: "code", filename: "outbox.sql", code: outboxTableSql },
+            { type: "h3", text: "Step 2: Write both rows in one transaction" },
+            { type: "code", filename: "OrderService.java", code: outboxWriteJava },
+            { type: "p", text: "If the transaction rolls back, neither the order nor its event exists. If it commits, both do, and the relay will deliver the event even if the service dies right afterwards." },
+            { type: "h3", text: "Step 3: The relay" },
+            { type: "p", text: "There are two common ways to move rows from the outbox to Kafka:" },
+            {
+                type: "ul",
+                items: [
+                    "**Polling publisher:** a small job queries unpublished rows, sends them, and marks them published. Simple, and fine for modest volume.",
+                    "**Change data capture (CDC):** a tool such as Debezium reads the database’s transaction log and publishes new outbox rows to Kafka, so nothing polls your tables. Debezium ships an Outbox Event Router for this. It adds low latency and less load on the database, but also one more system to run.",
+                ],
+            },
+            { type: "code", filename: "OutboxRelay.java", code: outboxRelayJava },
+            { type: "note", text: "That relay is simplified (checked exceptions and error handling are left out). `FOR UPDATE SKIP LOCKED` lets several relay instances work on different rows without blocking each other, but then rows for the same order can be published out of order. Either run one relay, or split the work by a hash of `aggregate_id` so one order always goes through the same relay." },
+            { type: "h3", text: "What the outbox does and doesn’t give you" },
+            {
+                type: "ul",
+                items: [
+                    "**You get:** no lost events. If the order was committed, the event will be published.",
+                    "**You don’t get exactly-once.** If the relay publishes a row and crashes before marking it published, it sends the row again. The outbox is at-least-once.",
+                    "**You need cleanup:** delete or archive published rows on a schedule, or the table grows forever.",
+                ],
+            },
+            { type: "p", text: "That second point is why the next section matters. The outbox moves the problem from “lost events” to “duplicate events”, and duplicates are a problem you can solve." },
+
+            // Idempotency
+            { type: "h2", text: "Idempotency: Making Duplicates Harmless" },
+            { type: "p", text: "An operation is **idempotent** if doing it twice has the same effect as doing it once. Setting a status to `PAID` is idempotent. Adding 500 to a balance is not. You can’t stop at-least-once systems from repeating messages, so you make the consumer safe to repeat." },
+            { type: "h3", text: "Where duplicates come from" },
+            {
+                type: "ul",
+                items: [
+                    "The producer retries after a timeout, although the broker had already stored the first attempt.",
+                    "The outbox relay crashes after publishing but before marking the row as published.",
+                    "A consumer crashes after doing the work but before committing its offset.",
+                    "A rebalance moves a partition to another consumer while the first one is mid-batch.",
+                    "A user double-clicks, or a client retries an HTTP call.",
+                ],
+            },
+            { type: "h3", text: "Solution 1: Make the operation naturally idempotent" },
+            { type: "p", text: "The cheapest fix is to design the write so repeating it is harmless: set values instead of incrementing them, use upserts, and give every business operation an ID that the database enforces as unique." },
+            { type: "code", filename: "idempotent.sql", code: naturallyIdempotent },
+            { type: "h3", text: "Solution 2: Record processed event IDs (the inbox pattern)" },
+            { type: "p", text: "When the operation can’t be made idempotent by design, give every event a unique ID (the outbox row’s `id` works well, sent as a Kafka header) and store the IDs you’ve handled. The consumer inserts the ID in the **same transaction** as its business change. A unique key rejects the second attempt." },
+            { type: "code", filename: "processed_events.sql", code: processedEventsSql },
+            { type: "code", filename: "BillingConsumer.java", code: idempotentConsumerJava },
+            {
+                type: "figure",
+                diagram: "idempotent-consumer",
+                caption: "The duplicate check and the business change share one transaction, so they can’t get out of step.",
+            },
+            { type: "note", text: "Putting the ID check and the business write in the same database transaction is the whole trick. If you check in Redis and then write to the database, a crash between the two puts you back in the same dual-write problem." },
+            { type: "h3", text: "Solution 3: Idempotency keys for outside systems" },
+            { type: "p", text: "When the side effect is an API call you don’t own (a payment provider, an email service), pass your event ID as the **idempotency key**. Providers such as Stripe store the key and return the original result if they see it again. If the provider has no such feature, record the call in your own database first and only then make it, and accept that a rare crash can still repeat it." },
+            { type: "h3", text: "Solution 4: Kafka’s own features, and their limits" },
+            {
+                type: "ul",
+                items: [
+                    "**Idempotent producer** (`enable.idempotence=true`): the broker drops duplicate sends caused by producer retries, per partition. It doesn’t protect you if the producer process restarts, and it knows nothing about your outbox relay re-sending a row.",
+                    "**Transactions** (`transactional.id`, with consumers on `isolation.level=read_committed`): atomic read-process-write across Kafka topics. Useful for stream processing, but your database writes aren’t part of that transaction.",
+                ],
+            },
+            { type: "code", filename: "producer.properties", code: producerConfig },
+            { type: "p", text: "Use these as a base layer, because they remove a whole class of duplicates for free. They don’t replace an idempotent consumer." },
+
+            // Scaling
+            { type: "h2", text: "Scaling It Properly" },
+            { type: "h3", text: "Partitions set your parallelism" },
+            { type: "p", text: "Within a consumer group, a partition is read by at most one consumer. A topic with 6 partitions can use at most 6 consumers in a group, and a 7th sits idle. Pick the partition count from the throughput you’ll need, with some headroom. You can add partitions later but never remove them, and adding them changes which partition a key maps to, which breaks ordering for keys already in use." },
+            { type: "h3", text: "Choose the key with care" },
+            { type: "ul", items: [
+                "Use an ID that groups the events which must stay in order, such as the order ID or account ID.",
+                "Avoid keys that are very uneven. If one customer produces most of your traffic, one partition becomes a hot spot while the others stay idle.",
+            ] },
+            { type: "h3", text: "Consumer settings that matter" },
+            { type: "code", filename: "consumer.properties", code: consumerConfig },
+            {
+                type: "ul",
+                items: [
+                    "**Commit after processing,** with auto-commit off, so a crash repeats work instead of losing it. Your idempotent consumer makes that safe.",
+                    "**Finish each batch before `max.poll.interval.ms` passes.** A slow batch makes the broker think the consumer died, and it triggers a rebalance, which causes more duplicates.",
+                    "**Use cooperative rebalancing** so a new consumer joining doesn’t pause the whole group.",
+                ],
+            },
+            { type: "h3", text: "Handle bad messages without blocking the partition" },
+            { type: "p", text: "One message that always fails will block its partition if you retry it forever. Retry a few times with backoff, then move it to a **dead-letter topic** and carry on. Spring Kafka’s `DefaultErrorHandler` with a `DeadLetterPublishingRecoverer` does this. Monitor that topic, because a growing dead-letter queue is a bug report." },
+            { type: "h3", text: "Watch the right numbers" },
+            {
+                type: "ul",
+                items: [
+                    "**Consumer lag** per partition: how far behind the group is. This is your main health signal.",
+                    "**Outbox backlog:** the count of unpublished rows and the age of the oldest one.",
+                    "**Duplicate rate:** how often the processed-events insert hits a conflict. A sudden jump points to a rebalance storm or a relay problem.",
+                    "**Dead-letter volume.**",
+                ],
+            },
+            { type: "h3", text: "Keep the inbox table small" },
+            { type: "p", text: "The processed-events table grows with every event. Delete rows older than your longest possible redelivery window (for example, a few times your topic retention), or partition the table by date so old data can be dropped cheaply." },
+
+            // Together
+            { type: "h2", text: "Putting It All Together" },
+            {
+                type: "figure",
+                diagram: "reliable-pipeline",
+                caption: "Each stage covers the weak spot of the one before it.",
+            },
+            {
+                type: "ol",
+                items: [
+                    "Write the business change and an outbox row in one transaction, so no event is lost.",
+                    "A relay publishes the outbox rows to Kafka, keyed by the entity ID so related events stay in order.",
+                    "Run producers with `acks=all` and idempotence on, to remove retry duplicates.",
+                    "Consumers insert the event ID and apply the change in one transaction, so duplicates do nothing.",
+                    "Commit the offset after that transaction, and send poison messages to a dead-letter topic.",
+                    "Watch lag, outbox backlog and duplicate rate.",
+                ],
+            },
+
+            // Takeaway
+            { type: "h2", text: "My Takeaway" },
+            { type: "p", text: "“Exactly-once” is rarely something you buy. It’s something you assemble: at-least-once delivery, which is cheap and reliable, plus idempotent handling, which turns repeats into no-ops." },
+            { type: "quote", text: "Make it hard to lose a message, and make it harmless to see one twice." },
+            { type: "p", text: "The outbox covers the first half and the idempotent consumer covers the second. Start with those two and you’ll avoid most of the painful production incidents with Kafka." },
+        ],
+    },
+    {
+        slug: "learn-java-streams-zero-to-advanced",
+        title: "Learn Java Streams from Zero to Advanced",
+        description: "What a stream pipeline is, how laziness works, the collectors and pitfalls worth knowing, and a free 18-lesson practice repo with 185 exercises.",
+        date: "2026-11-20",
+        tags: ["Java", "Streams", "Functional Programming", "Practice"],
+        body: [
+            // Introduction
+            { type: "p", text: "Java streams look easy in tutorials: `list.stream().filter(...).map(...).toList()`. Then you meet `groupingBy` with a downstream collector, a `flatMap` that returns an `Optional`, or a pipeline that prints in an order you didn’t expect, and reading alone stops helping." },
+            { type: "p", text: `I built a practice repository for exactly that: [java-streams-practice](${STREAMS_REPO}). It has 18 short lessons and 185 exercises, and each exercise checks your answer for you. This post covers the ideas behind it, so you know what to look out for. The repo is where you build the skill.` },
+
+            // What
+            { type: "h2", text: "What Is a Stream?" },
+            { type: "p", text: "A stream is not a collection and it doesn’t store data. It’s a description of a computation over a source (a list, an array, a file, a generator). You build a **pipeline** with three parts:" },
+            {
+                type: "ol",
+                items: [
+                    "**A source** that produces elements, such as `list.stream()` or `IntStream.range(0, 10)`.",
+                    "**Intermediate operations** that transform the stream into another stream: `filter`, `map`, `sorted`, `distinct`, `limit`.",
+                    "**A terminal operation** that produces a result and starts the work: `toList()`, `collect(...)`, `reduce`, `count`, `findFirst`.",
+                ],
+            },
+            {
+                type: "figure",
+                diagram: "stream-pipeline",
+                caption: "Intermediate operations only describe the work. The terminal operation runs it.",
+            },
+            { type: "code", filename: "Pipeline.java", code: streamsPipelineJava },
+            { type: "p", text: "Two properties follow from this design. A stream can only be used **once**, because after a terminal operation it’s consumed. And it doesn’t change its source, since it produces new results instead of modifying the list." },
+
+            // Laziness
+            { type: "h2", text: "Laziness: The Idea That Explains Everything" },
+            { type: "p", text: "Intermediate operations are **lazy**. Calling `filter` or `map` does no work. The pipeline only runs when a terminal operation is called, and then elements flow through it one at a time, not stage by stage." },
+            { type: "code", filename: "Laziness.java", code: streamsLazyJava },
+            { type: "p", text: "This is why short-circuiting operations such as `findFirst`, `limit` and `anyMatch` can stop early, and why even an infinite stream like `Stream.iterate(1, n -> n + 1)` works with `limit(10)`." },
+            { type: "note", text: "The exceptions are barriers such as `sorted`: it has to see every element before it can pass the first one on. Put `filter` early to shrink the data, and `sorted` late." },
+
+            // Collectors
+            { type: "h2", text: "Collectors and Grouping" },
+            { type: "p", text: "`collect` turns a stream into a result, and the `Collectors` class does most of the work. Group, count, sum and join without writing a loop:" },
+            { type: "code", filename: "Grouping.java", code: streamsGroupingJava },
+            { type: "p", text: "`groupingBy` takes a second collector (a *downstream collector*) that decides what to do with each group. Once you’re comfortable with this idea you can nest them: group by city, then by customer, then sum the amounts. The repo’s lessons 06 to 08 drill this, including `teeing` and writing your own collector with `Collector.of`." },
+
+            // flatMap
+            { type: "h2", text: "flatMap: One-to-Many" },
+            { type: "p", text: "`map` turns one element into one element. `flatMap` turns one element into **a stream of elements** and flattens them into a single stream." },
+            { type: "code", filename: "FlatMap.java", code: streamsFlatMapJava },
+            { type: "p", text: "It’s the tool for nested lists, for splitting text into words, and for unwrapping optional values with `Optional.stream()`." },
+
+            // Primitive
+            { type: "h2", text: "Primitive Streams" },
+            { type: "p", text: "`Stream<Integer>` boxes every number into an object. For numeric work use `IntStream`, `LongStream` and `DoubleStream`: they avoid the boxing cost, and they give you `sum()`, `average()` and `summaryStatistics()` directly. Convert with `mapToInt`, `mapToDouble` and back with `boxed()`." },
+
+            // Pitfalls
+            { type: "h2", text: "Pitfalls That Catch Everyone" },
+            { type: "h3", text: "1. toMap throws on duplicate keys" },
+            { type: "code", filename: "ToMap.java", code: streamsToMapJava },
+            { type: "p", text: "If several elements can share a key, pass a merge function, or use `groupingBy` when you want a list per key." },
+            { type: "h3", text: "2. filter and groupingBy’s filtering are not the same" },
+            { type: "p", text: "Calling `.filter(...)` before `groupingBy` drops groups that end up empty. Putting `Collectors.filtering(...)` inside the grouping keeps every group, with an empty list for the ones that matched nothing. Choose based on whether you want those empty groups in the result." },
+            { type: "h3", text: "3. count() may skip your pipeline" },
+            { type: "p", text: "When the size can be worked out from the source, `count()` doesn’t run the stages at all. `List.of(1, 2, 3).stream().peek(System.out::println).count()` prints nothing. This is why `peek` is for debugging only and shouldn’t carry real logic." },
+            { type: "h3", text: "4. Side effects inside a pipeline" },
+            { type: "p", text: "Collecting with `forEach(list::add)` mixes a side effect into the pipeline. It’s harder to read, and it breaks the moment the stream goes parallel. Use a collector or `toList()` and let the stream build the result." },
+            { type: "h3", text: "5. Parallel streams aren’t free speed" },
+            { type: "code", filename: "Parallel.java", code: streamsParallelJava },
+            { type: "p", text: "`parallel()` can help for large, CPU-heavy, side-effect-free work. It can hurt for small data, for blocking I/O (everything shares the common fork-join pool), and whenever the code touches shared mutable state. Measure before using it." },
+
+            // Rules of thumb
+            { type: "h2", text: "Ten Rules of Thumb" },
+            {
+                type: "ol",
+                items: [
+                    "Nothing runs without a terminal operation.",
+                    "Each element flows through the whole pipeline before the next one, except at barriers like `sorted`.",
+                    "Filter early, sort late, and limit as soon as you can.",
+                    "Use `mapToInt`, `mapToDouble` and `mapToLong` for numeric work.",
+                    "Use `flatMap` for one-to-many.",
+                    "Collect with collectors, never `forEach(list::add)`.",
+                    "`toMap` needs a merge function when keys can repeat. Prefer `groupingBy` for many values per key.",
+                    "`groupingBy` with `filtering` keeps empty groups, while `.filter` before it drops them.",
+                    "Use `parallel()` only for big, CPU-bound, side-effect-free work, and measure it.",
+                    "If a plain `for` loop is clearer, use the loop.",
+                ],
+            },
+
+            // Practice
+            { type: "h2", text: "Practice: 18 Lessons, 185 Exercises" },
+            { type: "p", text: `Reading about streams only goes so far. The [java-streams-practice](${STREAMS_REPO}) repo teaches them by doing. It needs only a JDK (17 or newer), with no Maven, no JUnit and no dependencies.` },
+            {
+                type: "figure",
+                diagram: "streams-roadmap",
+                caption: "The course path. Lessons 01 to 12 are the core, and 13 to 18 are extra practice.",
+            },
+            {
+                type: "ul",
+                items: [
+                    "Each lesson starts with **theory** in the class Javadoc, followed by a runnable demo.",
+                    "Then come `// TODO` exercises. A stub shows ⬜ TODO, a correct answer shows ✅ PASS, and a wrong one shows ❌ FAIL with the expected and actual values.",
+                    "Stuck for more than ten minutes? Read the hint, then peek at the answer key in `solutions/`.",
+                    "Lessons 13 to 16 are practice packs (strings, maps, stream sources, interview classics). Lesson 17 is a “predict the output” quiz, and lessons 12 and 18 are capstones.",
+                ],
+            },
+            { type: "code", filename: "terminal", code: streamsRunJava },
+            { type: "note", text: "Don’t read the solutions first. Type your own answer, run it, and only then compare. A week later, re-type the hard ones from memory." },
+
+            // Takeaway
+            { type: "h2", text: "My Takeaway" },
+            { type: "p", text: "Streams stop feeling like magic once you hold on to three ideas: a pipeline is a description, a terminal operation starts it, and elements flow one at a time." },
+            { type: "quote", text: "Use streams to say what you want. Use a loop when how it happens is the clearer story." },
+            { type: "p", text: `Clone the [practice repo](${STREAMS_REPO}), do one lesson a day, and try rewriting a loop from your own project as a stream. Then decide honestly which one reads better.` },
+        ],
+    },
     {
         slug: "master-low-level-and-high-level-design",
         title: "How to Master Low-Level Design and High-Level Design",
