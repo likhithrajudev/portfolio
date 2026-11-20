@@ -1,5 +1,5 @@
 # Builds the site as static HTML and publishes it to GitHub Pages on every push to main.
-# The site is served at https://likhithraju.tech (set by public/CNAME).
+# The site is served at https://likhithraju.in (set by public/CNAME).
 name: Deploy to GitHub Pages
 
 on:
@@ -35,6 +35,9 @@ jobs:
 
       # next.config.ts has output: "export", so this writes the site to out/
       - run: pnpm build
+        env:
+          # Formspree form ID for the contact page; set it under Settings > Secrets and variables > Actions > Variables
+          NEXT_PUBLIC_FORMSPREE_ID: ${{ vars.NEXT_PUBLIC_FORMSPREE_ID }}
 
       - uses: actions/configure-pages@v5
 

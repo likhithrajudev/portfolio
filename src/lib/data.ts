@@ -38,6 +38,7 @@ export const footerLinks: NavLink[] = [
     { href: "/gears", label: "Gears" },
     { href: "/setup", label: "Setup" },
     { href: "/terminal", label: "Terminal" },
+    { href: "/contact", label: "Contact" },
     { href: "/books", label: "Books" },
     { href: "/movies", label: "Movies" },
 ];
