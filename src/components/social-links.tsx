@@ -34,7 +34,7 @@ export default function SocialLinks({ className = "gap-0.5" }: { className?: str
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={label}
-                        className="text-secondary transition-colors hover:text-primary"
+                        className="text-secondary transition-colors hover:text-primary pointer-coarse:p-2"
                     >
                         <Icon className="size-6" />
                     </a>

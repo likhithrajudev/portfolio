@@ -61,7 +61,11 @@ function ContentBlock({ block }: { block: Block }) {
         case "figure":
             return (
                 <figure className="space-y-2 py-2">
-                    <div className="rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
+                    {/* Wide diagrams keep a readable size and scroll sideways on narrow screens */}
+                    <div
+                        tabIndex={0}
+                        className="overflow-x-auto rounded-xl border border-border bg-muted/30 p-3 focus-visible:outline-2 focus-visible:outline-secondary/40 sm:p-4"
+                    >
                         <Diagram name={block.diagram} />
                     </div>
                     {block.caption && (
@@ -89,7 +93,7 @@ function ContentBlock({ block }: { block: Block }) {
 
 export default function ContentBlocks({ blocks }: { blocks: Block[] }) {
     return (
-        <div className="space-y-4 leading-relaxed text-foreground/90">
+        <div className="wrap-break-word space-y-4 leading-relaxed text-foreground/90">
             {blocks.map((block, i) => (
                 <ContentBlock key={i} block={block} />
             ))}

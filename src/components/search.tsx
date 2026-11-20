@@ -113,10 +113,10 @@ export default function Search({ items, modKey }: { items: SearchItem[]; modKey:
                 type="button"
                 onClick={openPalette}
                 aria-label={`Search the site (${modKey === "⌘" ? "Command" : "Control"}+K)`}
-                className="inline-flex h-8 w-56 items-center justify-between gap-2 rounded-full border border-border bg-background px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                className="inline-flex size-8 items-center justify-center gap-2 rounded-full border border-border bg-background text-sm text-muted-foreground transition-colors hover:text-foreground pointer-coarse:size-9 sm:h-8 sm:w-56 sm:justify-between sm:px-3"
             >
                 <MagnifyingGlass className="size-4" aria-hidden="true" />
-                <span className="flex-1 text-left">Search...</span>
+                <span className="hidden flex-1 text-left sm:block">Search...</span>
                 <kbd className="hidden items-center gap-1 sm:flex">
                     <kbd className="inline-flex h-5 items-center rounded-sm bg-black/5 px-1 font-sans text-sm font-normal text-muted-foreground dark:bg-white/10">
                         {modKey}
@@ -157,7 +157,7 @@ export default function Search({ items, modKey }: { items: SearchItem[]; modKey:
                                     setActive(0);
                                 }}
                                 onKeyDown={onInputKeyDown}
-                                className="h-12 flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-muted-foreground"
+                                className="h-12 flex-1 bg-transparent text-base text-primary outline-none placeholder:text-muted-foreground sm:text-sm"
                             />
                             <kbd className="rounded-sm bg-black/5 px-1.5 py-0.5 text-[11px] text-muted-foreground dark:bg-white/10">
                                 Esc

@@ -100,7 +100,7 @@ function LldVsHld() {
             viewBox="0 0 640 300"
             role="img"
             aria-label="Side by side: low-level design shows classes ParkingLot, Level and ParkingSpot; high-level design shows a client, load balancer, two services, a cache and a database."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-lld-hld" />
@@ -190,7 +190,7 @@ function StrategyUml() {
             viewBox="0 0 640 280"
             role="img"
             aria-label="UML class diagram: ParkingTicket uses the PricingStrategy interface, which HourlyPricing and FlatDailyPricing implement."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-strategy" />
@@ -229,7 +229,7 @@ function HldArchitecture() {
             viewBox="0 0 640 360"
             role="img"
             aria-label="Architecture: a client calls a CDN for static files and a load balancer, which routes through an API gateway to three services. Services use a cache, a primary database with a read replica, and a message queue processed by a worker."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-hld" />
@@ -309,7 +309,7 @@ function PubSubModel() {
             viewBox="0 0 640 300"
             role="img"
             aria-label="Two publishers, an order service and a payment service, send messages to a topic called orders. Three subscribers, billing, email and analytics, each receive every message from the topic."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-pubsub" />
@@ -361,7 +361,7 @@ function KafkaPartitions() {
             viewBox="0 0 640 330"
             role="img"
             aria-label="A producer writes to a topic split into three partitions, P0, P1 and P2, each an ordered log with offsets 0 to 5. In a consumer group called billing, consumer 1 reads partitions P0 and P1, and consumer 2 reads partition P2."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-partitions" />
@@ -422,7 +422,7 @@ function DualWrite() {
             viewBox="0 0 640 250"
             role="img"
             aria-label="An order service first saves the order to the database, which succeeds, then publishes an event to Kafka, but crashes before the publish. The order exists, but the event is lost."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-dual" />
@@ -455,7 +455,7 @@ function OutboxPattern() {
             viewBox="0 0 640 310"
             role="img"
             aria-label="The order service commits the order row and an outbox row in one database transaction. A relay reads unpublished outbox rows and publishes them to Kafka. Consumers read from Kafka at least once."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-outbox" />
@@ -532,7 +532,7 @@ function StreamPipeline() {
             viewBox="0 0 640 190"
             role="img"
             aria-label="A stream pipeline: a source list of orders, then the intermediate operations filter, map and sorted, then a terminal operation, collect. Nothing runs until the terminal operation is called."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-stream" />
@@ -627,7 +627,7 @@ function HarnessLayers() {
             viewBox="0 0 640 330"
             role="img"
             aria-label="The model sits in the middle. Around it, the harness provides prompts and instructions, context management, memory, tools, permissions and sandbox, hooks and guardrails, and observability and evals."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-harness" />
@@ -692,7 +692,7 @@ function VoicePipeline() {
             viewBox="0 0 640 300"
             role="img"
             aria-label="Two designs. A cascaded pipeline: microphone, turn detection, speech-to-text, language model, text-to-speech, speaker. A speech-to-speech design: microphone, one speech-to-speech model, speaker."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <defs>
                 <Arrowhead id="arrow-voice" />
@@ -737,7 +737,7 @@ function VoiceLatency() {
             viewBox="0 0 640 250"
             role="img"
             aria-label="An illustrative 800 millisecond voice-to-voice budget: 200 waiting for end of turn, 100 speech-to-text, 300 language model, 150 text-to-speech and 50 network and playback."
-            className="h-auto w-full"
+            className="h-auto w-full min-w-[560px]"
         >
             <text x={20} y={32} fontSize={13} fontWeight={700} className="fill-primary">An illustrative 800 ms voice-to-voice budget</text>
             {parts.map((part) => {

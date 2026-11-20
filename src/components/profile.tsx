@@ -19,9 +19,9 @@ export default function Profile() {
                 ) : (
                     <Avatar />
                 )}
-                <div>
-                    <h1 className="whitespace-nowrap text-lg font-bold sm:text-2xl">{site.name}</h1>
-                    <p className="flex flex-wrap items-center gap-x-1 gap-y-1 text-base text-secondary">
+                <div className="min-w-0">
+                    <h1 className="text-lg font-bold sm:text-2xl">{site.name}</h1>
+                    <p className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-secondary sm:text-base">
                         <span>{site.roles}</span>
                         <span>·</span>
                         <CopyEmail email={site.email} />

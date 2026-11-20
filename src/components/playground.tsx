@@ -286,7 +286,7 @@ export default function Playground() {
                     <select
                         value={example}
                         onChange={(e) => loadExample(e.target.value)}
-                        className="h-8 rounded-lg border border-border bg-background px-2 text-sm text-primary"
+                        className="h-8 max-w-44 rounded-lg border border-border bg-background px-2 text-base text-primary sm:max-w-none sm:text-sm"
                     >
                         <option value="" disabled>
                             Load an example…
@@ -305,7 +305,7 @@ export default function Playground() {
                 ref={editorRef}
                 data-lenis-prevent
                 aria-label="Code editor"
-                className="h-96 overflow-hidden rounded-xl border border-border bg-muted/30 [&_.cm-editor]:h-full"
+                className="h-72 overflow-hidden rounded-xl sm:h-96 border border-border bg-muted/30 [&_.cm-editor]:h-full"
             />
             <p className="text-xs text-muted-foreground">
                 Press <kbd className="rounded-sm bg-muted px-1 font-sans">⌘ / Ctrl + Enter</kbd> to run. Your code is

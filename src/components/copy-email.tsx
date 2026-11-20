@@ -24,13 +24,13 @@ export default function CopyEmail({ email }: { email: string }) {
     }
 
     return (
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex max-w-full items-center gap-2 break-all">
             {email}
             <button
                 type="button"
                 onClick={handleCopy}
                 aria-label={copied ? "Email copied" : "Copy email"}
-                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-primary"
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-primary pointer-coarse:size-9"
             >
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             </button>
